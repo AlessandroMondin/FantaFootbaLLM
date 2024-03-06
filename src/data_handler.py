@@ -2,15 +2,21 @@ from pymongo import MongoClient
 import requests
 from bs4 import BeautifulSoup
 
-# TODO:
-# Consider Bonus/Malus
+# IMPROVEMENT:
 # Integrate FantaMaster forecast: https://www.fantamaster.it/probabili-formazioni-25-giornata-seriea-2023-2024-news/
 # Integrate Mediaset player and match stats: https://www.sportmediaset.mediaset.it/pagelle/2023/serie-a/
-# How to select your own players?
+
+# TODO
+# Consider Bonus/Malus
+# Add all players to serie_a_stats
+# Add user player in some collection
 # How to match names? fuzzy?
 
 
-class SerieAUpdater:
+class SerieADatabaseManager:
+    """
+    Class used to scrape information on Leghe Serie A and to store them into MongoDB.
+    """
 
     HEADERS = {
         "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.142 Safari/537.36"
@@ -21,6 +27,7 @@ class SerieAUpdater:
     MONGO_DB_NEXT_MATCH_FORECAST = "forecast_match_day"
 
     url_serie_a_gen_info = "https://www.fantacalcio.it/serie-a/classifica"
+    url_players = "https://www.fantacalcio.it/serie-a/squadre"
 
     def __init__(self):
         self.client = MongoClient("mongodb://localhost:27017/")
@@ -33,9 +40,11 @@ class SerieAUpdater:
         self.forecast_collection = self.db[self.MONGO_DB_NEXT_MATCH_FORECAST]
 
         # for properties
-        self.current_match = None
-        self.last_match = None
-        self.serie_a_team_list = None
+        self._current_match_day = None
+        self._last_analysed_match = None
+        self._serie_a_teams = None
+        self._serie_a_players = None
+        self._fanta_football_team = None
 
     def setup_mongo(self):
         # to create db and collection
@@ -65,7 +74,7 @@ class SerieAUpdater:
 
     @property
     def current_match_day(self):
-        if self.current_match is None:
+        if self._current_match_day is None:
             response = requests.get(self.url_serie_a_gen_info, headers=self.HEADERS)
             soup = BeautifulSoup(response.text, "html.parser")
             games = soup.find_all("td", "played x3")
@@ -85,40 +94,81 @@ class SerieAUpdater:
                     continue
                 current_matchday = max(game, current_matchday)
 
-                self.current_match = current_matchday
+                self._current_match_day = current_matchday
 
-        return self.current_match
+        return self._current_match_day
 
     @property
     def last_analysed_match(self):
-        if self.last_match is None:
+        if self._last_analysed_match is None:
             # query to get the value of the last_analysed_match_day
             query = ({}, {"_id": 0, "last_analysed_match_day": 1})
-            self.last_match = self.championship_collection.find_one(*query)
+            self._last_analysed_match = self.championship_collection.find_one(*query)
             # mongo query return both key, values pairs, we want only the values
-            self.last_match = self.last_match["last_analysed_match_day"]
+            self._last_analysed_match = self._last_analysed_match[
+                "last_analysed_match_day"
+            ]
 
-        return self.last_match
+        return self._last_analysed_match
 
     @last_analysed_match.setter
     def last_analysed_match(self, new_val: float):
-        self.last_match = new_val
+        self._last_analysed_match = new_val
         # Optionally update the database to reflect this new value
         update_query = {"$set": {"last_analysed_match_day": new_val}}
         self.championship_collection.update_one({}, update_query)
 
     @property
     def serie_a_teams(self):
-        if self.serie_a_team_list is None:
+        if self._serie_a_teams is None:
             query = ({}, {"_id": 0, "serie_a_teams": 1})
 
-            self.serie_a_team_list = self.championship_collection.find_one(*query)
-            self.serie_a_team_list = self.serie_a_team_list["serie_a_teams"]
+            self._serie_a_teams = self.championship_collection.find_one(*query)
+            self._serie_a_teams = self._serie_a_teams["serie_a_teams"]
 
-        return self.serie_a_team_list
+        return self._serie_a_teams
+
+    @property
+    def serie_a_players(self):
+        if self._serie_a_players is None:
+            query = (
+                {"serie_a_players": {"$exists": True}},
+                {"serie_a_players": 1, "_id": 0},
+            )
+            self._serie_a_players = self.championship_collection.find_one(*query)
+            if self._serie_a_players == {} or self._serie_a_players is None:
+                self.retrieve_players()
+        return self._serie_a_players
+
+    @property
+    def fanta_football_team(self):
+        if self._fanta_football_team is None:
+            query = (
+                {"fanta_football_team": {"$exists": True}},
+                {"fanta_football_team": 1, "_id": 0},
+            )
+            self._fanta_football_team = self.championship_collection.find_one(*query)
+
+        return self._fanta_football_team
+
+    def retrieve_players(self):
+        players = []
+        for team in self.serie_a_teams:
+            url = f"{self.url_players}/{team}"
+            response = requests.get(url, headers=self.HEADERS)
+            soup = BeautifulSoup(response.text, "html.parser")
+            player_tags = soup.select(".player-info")
+            for player in player_tags:
+                name = player.select_one(".player-name")["href"]
+                name = name.split("/")[-2]
+                role = player.select_one(".role")["data-value"]
+                # role_mantra = player.select_one(".role.role-mantra")["data-value"]
+                players.append({"name": name, "role": role, "team": team})
+
+        self.championship_collection.insert_one({"serie_a_players": players})
 
     def scrape(self):
-        # self.scrape_players_past_matches()
+        self.scrape_players_past_matches()
         self.scrape_forecast_next_match()
 
     def scrape_players_past_matches(self):
@@ -148,7 +198,7 @@ class SerieAUpdater:
                         # and therefore we skip them.
                         if player_name_tag is None:
                             continue
-                        player_name = player_name_tag.text.replace("\n", "")
+                        player_name = player_name_tag["href"].split("/")[-2]
                         adjective_performance = player_tag.find(
                             "h3", "text-primary"
                         ).text.replace("\n", "")
@@ -310,5 +360,5 @@ class SerieAUpdater:
 
 
 if __name__ == "__main__":
-    scraper = SerieAUpdater()
-    scraper.scrape()
+    scraper = SerieADatabaseManager()
+    scraper
