@@ -9,15 +9,21 @@ from langchain_openai import ChatOpenAI
 from langchain.schema import AIMessage, HumanMessage
 
 from dotenv import load_dotenv
-from prompts import recognize_players_prompt, no_players_in_the_message
+from prompts import (
+    message_is_listing_players_prompt,
+    recognize_players_prompt,
+    no_players_in_the_message,
+    style_concise,
+    style_very_concise,
+)
 from data_handler import SerieADatabaseManager
 
 dotenv_path = os.path.join(os.path.dirname(__file__), "..", ".env")
 
 load_dotenv(dotenv_path=dotenv_path)
 
-gpt3 = ChatOpenAI(temperature=0, model="gpt-3.5-turbo-0613")
-gpt4 = ChatOpenAI(temperature=1.0, model="gpt-4")
+gpt3 = ChatOpenAI(temperature=1.0, model="gpt-3.5-turbo-16k")
+gpt4 = ChatOpenAI(temperature=0, model="gpt-4")
 
 
 class LLMInterface:
@@ -28,6 +34,7 @@ class LLMInterface:
     def __init__(self) -> None:
         self.data_manager = SerieADatabaseManager()
         self.light_llm = gpt3
+        self.heavy_llm = gpt4
         self.team_is_created = self.data_manager.fanta_football_team is not None
 
         # for debug purpose
@@ -58,52 +65,84 @@ class LLMInterface:
         history_langchain_format.append(HumanMessage(content=message))
         return history_langchain_format
 
+    async def get_players(self, message: str):
+        num_players = len(self.data_manager.serie_a_players["serie_a_players"])
+        segment_size = max(num_players // 10, 1)  # Ensure segment size is at least 1
+        segments = []
+
+        # Split the players into 10 segments
+        for i in range(10):
+            start_index = i * segment_size
+            # For the last segment, ensure it includes the end of the list
+            end_index = None if i == 9 else start_index + segment_size
+            segments.append(
+                self.data_manager.serie_a_players["serie_a_players"][
+                    start_index:end_index
+                ]
+            )
+
+        # Process each segment asynchronously
+        user_players_futures = []
+        for segment in segments:
+            formatted_prompt = recognize_players_template.format(
+                list_of_all_players=segment,
+                user_message=message,
+            )
+            formatted_prompt = self.langchain_format(formatted_prompt, history)
+            # Assuming heavy_llm is an async function
+            future = self.heavy_llm(formatted_prompt)
+            user_players_futures.append(future)
+
+        # Wait for all futures to complete
+        user_players_responses = await asyncio.gather(*user_players_futures)
+
     def chat_debug(self, message, history=""):
         if self.team_is_created is False:
-            prompt = PromptTemplate.from_template(template=recognize_players_prompt)
+            prompt = PromptTemplate.from_template(
+                template=message_is_listing_players_prompt
+            )
             prompt = prompt.format(chat_history=message)
             prompt = self.langchain_format(prompt, self.history)
-            players = self.light_llm(prompt).content
-            try:
-                players = eval(players)
-                if players == []:
-                    prompt = PromptTemplate.from_template(
-                        template=no_players_in_the_message
-                    ).format(previous_message=message)
+            contains_players = self.light_llm(prompt).content
 
-                    prompt = self.langchain_format(prompt, self.history)
-                    response = self.light_llm(prompt).content
-                    self.history.append([message, response])
-                    return response
-                else:
-                    self.data_manager.serie_a_players
-                    matched_players = []
-                    not_matched_players = []
-                    for prompt_player in players:
-                        is_matched = False
-                        prompt_player = prompt_player["name"]
-                        for verified_player in self.data_manager.serie_a_players[
-                            "serie_a_players"
-                        ]:
-                            if is_matched:
-                                break
+            if eval(contains_players) is True:
+                prompt = PromptTemplate.from_template(template=recognize_players_prompt)
 
-                            verified_player = verified_player["name"]
+                # gpt4 available to the public has a context window of 8k token and
+                # therefore we need to split the list of players into two prompts.
+                num_players = len(self.data_manager.serie_a_players["serie_a_players"])
+                half_index = num_players // 2
+                first_half_players = self.data_manager.serie_a_players[
+                    "serie_a_players"
+                ][:half_index]
+                second_half_players = self.data_manager.serie_a_players[
+                    "serie_a_players"
+                ][half_index:]
+                prompt_1 = prompt.format(
+                    list_of_all_players=first_half_players,
+                    user_message=message,
+                )
+                prompt_2 = prompt.format(
+                    list_of_all_players=second_half_players,
+                    user_message=message,
+                )
+                prompt_1 = self.langchain_format(prompt_1, [])
+                prompt_2 = self.langchain_format(prompt_2, [])
+                user_players_1 = self.heavy_llm(prompt_1)
+                user_players_2 = self.heavy_llm(prompt_2)
 
-                            if fuzz.partial_ratio(prompt_player, verified_player) > 80:
-                                matched_players.append(prompt_player)
-                                is_matched = True
+                user_players = eval(user_players_1) + eval(user_players_2)
 
-                        if is_matched == False:
-                            not_matched_players.append(prompt_player)
+                c = 1
 
-                    # TODO: add players to MongoDB
-                    #       create prompt to tell which players have been added and which are not.
-
-                    pass
-            except:
-                # TODO: create prompt to explain that the query failed??
-                pass
+            else:
+                prompt = PromptTemplate.from_template(
+                    template=no_players_in_the_message
+                )
+                prompt = prompt.format(message=message, style=style_very_concise)
+                prompt = self.langchain_format(prompt, [])
+                response = self.light_llm(prompt)
+                return response
         else:
             # TODO:
             # Update Team Prompts and Query
@@ -116,10 +155,10 @@ if __name__ == "__main__":
     import time
 
     smart_llm = LLMInterface()
-    start = time.time()
-    message = "Ciao, potresti spiegarmi come si usa il chatbot?"
-    smart_llm.chat_debug(message)
-    print(f"message took: {time.time() - start}")
+    # start = time.time()
+    # message = "Ciao, potresti spiegarmi come si usa il chatbot?"
+    # smart_llm.chat_debug(message)
+    # print(f"message took: {time.time() - start}")
     start = time.time()
     message = "ok: ho radunovic, sportiello, gollini, maignan, faraoni, bastoni, mancini, tomori, calafiorni, gatti, baschirotto, kayode, politano, el sharawi, jankto, anguissa, musah, bajrami, de ketelare, reinders, duvan zapata, scamacca, caputo, thuram, dia, okafor and anche il grande sedorf."
     smart_llm.chat_debug(message)
