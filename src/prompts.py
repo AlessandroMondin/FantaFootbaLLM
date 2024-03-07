@@ -3,7 +3,7 @@ from langchain.prompts import PromptTemplate
 
 recognize_players_prompt = """
 Given the following text, if you recognize names (players) return them in a list of dicts
-like -- [{{'player_name': player_name, 'team': team}}].--
+like -- [{{'name': player_name, 'team': team}}].--
 If the team is not specified, the default value is None.
 If no player is identified in the text, return an empty list: []."
 

@@ -10,4 +10,4 @@ from data_handler import SerieADatabaseManager
 
 if __name__ == "__main__":
     scraper = SerieADatabaseManager()
-    scraper.scrape()
+    scraper.update()
