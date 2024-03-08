@@ -139,9 +139,7 @@ class SerieADatabaseManager:
         while self.last_analysed_match < self.current_match_day:
             next_match_day = self.last_analysed_match + 1
             for team in self.serie_a_teams:
-                url = (
-                    f"https://www.fantacalcio.it/pagelle/2023-24/{team}/{next_match_day}"
-                )
+                url = f"https://www.fantacalcio.it/pagelle/2023-24/{team}/{next_match_day}"
 
                 for player_info in self.scrape_player_performace_match(url):
 
@@ -271,7 +269,9 @@ class SerieADatabaseManager:
         # https://www.fantacalcio.it/pagelle/2023-24/inter/1
         for role in ["p", "d", "c", "a"]:
 
-            report = soup.find_all("article", class_=f"report pill pill-card role-{role}")
+            report = soup.find_all(
+                "article", class_=f"report pill pill-card role-{role}"
+            )
 
             for player_tag in report:
                 team = url.split("/")[-2]

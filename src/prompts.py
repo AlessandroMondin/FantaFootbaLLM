@@ -4,14 +4,30 @@ style_concise = "informal and concise."
 style_very_concise = "informal and very concise. Do not be verbose."
 
 message_is_listing_players_prompt = """
-If the input massage contains names of players return True,
-otherwise return False.
+If the input massage contains names of players return them in a list.
+Otherwise return an empty list.
+
+EXAMPLES:
+///
+example 1:
+<<INPUT>>
+Ciao, come si usa questo chatbot?
+
+<<OUTPUT>>
+[]
+
+example 2:
+<<INPUT>>
+I miei giocatori sono Mike mAIGNAN, El sharawi, Baschirotto.
+
+<<OUTPUT>>
+["Mike mAIGNAN", "El sharawi", "Baschirotto"]
+///
 
 << INPUT >>
 {chat_history}
 
 << OUTPUT >>
-True or False
 """
 
 
@@ -26,35 +42,52 @@ Tell him to list them band then he will be able to continue. The output should b
 """
 
 recognize_players_prompt = """
-Given the names listed in <<LIST>>, return a sublist of <<LIST>> of the dictionaries
+Given the names listed in <<INPUT>>, return a sublist of <<INPUT>> of the dictionaries
 where the key 'name' is included in <<MESSAGE>>. Consider that typos can be present in
  <<MESSAGE>>.
 
-EXAMPLE:
+EXAMPLES:
+///
+example 1:
 <<INPUT>>
-{{'serie_a_players': [{{'name': 'audero', 'role': 'p', 'team': 'inter'}},
-                    {{'name': 'di-gennaro', 'role': 'p', 'team': 'inter'}},
-                    {{'name': 'sommer', 'role': 'p', 'team': 'inter'}},
-                    {{'name': 'dimarco', 'role': 'd', 'team': 'inter'}},
-                    {{'name': 'de-vrij', 'role': 'd', 'team': 'inter'}}]
-}}
+{{'name': 'audero', 'role': 'p', 'team': 'inter'}}
+
 
 <<MESSAGE>>
 "ok bro, I have maignan, sommer, parenzo, and de-vrij."
 
 <<OUTPUT>>
-[{{'name': 'sommer', 'role': 'p', 'team': 'inter'}},
-{{'name': 'de-vrij', 'role': 'd', 'team': 'inter'}}]
+{{}}
 
-<< INPUT >>
-{list_of_all_players}
+example 2:
+<<INPUT>>
+{{'name': 'maignan', 'role': 'p', 'team': 'milan'}}
+
+
+<<MESSAGE>>
+"ok bro, I have Mike Maignann, sommer, parenzo, and de-vrij."
+
+<<OUTPUT>>
+{{'name': 'maignan', 'role': 'p', 'team': 'milan'}}
+///
+<<INPUT>>
+{player_dict}
 
 <<MESSAGE>>
 {user_message}
 
 << OUTPUT >>
-Sublist of players contained in <<OUTPUT>> and <<MESSAGE>>
-as explained and shown in the EXAMPLE.
+<<INPUT>> if name is included in <<MESSAGE>>
+"""
+
+recognize_players_prompt = """
+Return <<INPUT>> if the key "name" is present in <<MESSAGE>>. Otherwise return {{}}
+
+<<INPUT>>
+{player_dict}
+
+<<MESSAGE>>
+{user_message}
 """
 
 if __name__ == "__main__":
