@@ -26,7 +26,7 @@ class SerieADatabaseManager:
         "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.142 Safari/537.36"
     }
     MONGO_DB_NAME = "FantaCalcioLLM"
-    MONGO_DB_SERIE_A_GEN_INFO = "serie_a_stats"
+    MONGO_DB_SERIE_A_GEN_INFO = "user_serie_a_info"
     MONGO_DB_PLAYER_INFO = "players"
     MONGO_DB_NEXT_MATCH_FORECAST = "forecast_match_day"
 
@@ -124,8 +124,8 @@ class SerieADatabaseManager:
     def fanta_football_team(self):
         if self._fanta_football_team is None:
             query = (
-                {"fanta_football_team": {"$exists": True}},
-                {"fanta_football_team": 1, "_id": 0},
+                {"user_players": {"$exists": True}},
+                {"user_players": 1, "_id": 0},
             )
             self._fanta_football_team = self.championship_collection.find_one(*query)
 
