@@ -1,17 +1,23 @@
 from typing import List, Dict, Generator, Tuple
-
+import yaml
 from pymongo import MongoClient
 import requests
 from bs4 import BeautifulSoup
 
 from utils import scrape_error_handler
 
+# Load the YAML file
+with open("src/bonus_malus.yaml", "r") as file:
+    data = yaml.safe_load(file)
+
+bonus_malus_table = data["bonus_malus_table"]
+
 # IMPROVEMENT:
 # Integrate FantaMaster forecast: https://www.fantamaster.it/probabili-formazioni-25-giornata-seriea-2023-2024-news/
 # Integrate Mediaset player and match stats: https://www.sportmediaset.mediaset.it/pagelle/2023/serie-a/
 
 # TODO
-# Consider Bonus/Malus
+# FIX CAMPIONCINO DI PARDO
 # Add all players to serie_a_stats
 # Add user player in some collection
 # How to match names? fuzzy?
@@ -33,7 +39,8 @@ class SerieADatabaseManager:
     url_serie_a_gen_info = "https://www.fantacalcio.it/serie-a/classifica"
     url_players = "https://www.fantacalcio.it/serie-a/squadre"
 
-    def __init__(self):
+    def __init__(self, bonus_malus: dict = bonus_malus_table):
+        self.bonus_malus_table = bonus_malus_table
         self.client = MongoClient("mongodb://localhost:27017/")
         # TODO: update at the end of the season
         if self.MONGO_DB_NAME not in self.client.list_database_names():
@@ -118,6 +125,7 @@ class SerieADatabaseManager:
             self._serie_a_players = self.championship_collection.find_one(*query)
             if self._serie_a_players == {} or self._serie_a_players is None:
                 self.retrieve_players()
+                self._serie_a_players = self.championship_collection.find_one(*query)
         return self._serie_a_players
 
     @property
@@ -143,7 +151,7 @@ class SerieADatabaseManager:
 
                 for player_info in self.scrape_player_performace_match(url):
 
-                    # Some players are displayed twice with the htmls, we want to add their match stats only once.
+                    # Check if the player's match stats for the specific matchday already exist.
                     existing_entry = self.players_collection.find_one(
                         {
                             "name": player_info["name"],
@@ -155,31 +163,48 @@ class SerieADatabaseManager:
                         }
                     )
 
-                    # If the entry does not exist, update the document
-                    if not existing_entry:
+                    # Prepare the updated match stats.
+                    grade = float(player_info["grade"].replace(",", "."))
+                    total_bonus = self.total_bonus(player_info["bonus_malus"])
+                    updated_match_stats = {
+                        "matchday": player_info["matchday"],
+                        "adjective_performance": player_info["adjective_performance"],
+                        "grade": grade,
+                        "bonus_malus": player_info["bonus_malus"],
+                        "grade_with_bm": grade + total_bonus,
+                        "description": player_info["description"],
+                    }
+
+                    # If the entry exists, update the existing match stats.
+                    if existing_entry:
+                        self.players_collection.update_one(
+                            {
+                                "name": player_info["name"],
+                                "role": player_info["role"],
+                                "team": player_info["team"],
+                                "matchStats.matchday": player_info["matchday"],
+                            },
+                            {"$set": {"matchStats.$": updated_match_stats}},
+                        )
+                    else:
+                        # If the entry does not exist, add the new match stats.
                         self.players_collection.update_one(
                             {
                                 "name": player_info["name"],
                                 "role": player_info["role"],
                                 "team": player_info["team"],
                             },
-                            {
-                                "$push": {
-                                    "matchStats": {
-                                        "matchday": player_info["matchday"],
-                                        "adjective_performance": player_info[
-                                            "adjective_performance"
-                                        ],
-                                        "grade": player_info["grade"],
-                                        "bonus_malus": player_info["bonus_malus"],
-                                        "description": player_info["description"],
-                                    }
-                                }
-                            },
+                            {"$push": {"matchStats": updated_match_stats}},
                             upsert=True,
                         )
 
             self.last_analysed_match += 1
+
+    def total_bonus(self, bonus_malus_player: List) -> float:
+        return sum(
+            self.bonus_malus_table[item["title"]] * int(item["value"])
+            for item in bonus_malus_player
+        )
 
     def update_forecast_next_match(self):
 

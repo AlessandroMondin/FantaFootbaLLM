@@ -1,3 +1,4 @@
+import ast
 import os
 from typing import List, Tuple
 
@@ -35,6 +36,15 @@ gpt3_chat = ChatOpenAI(temperature=0.7, model="gpt-3.5-turbo-16k")
 gpt4_chat = ChatOpenAI(temperature=0.7, model="gpt-4")
 
 
+# TODO
+# REFORMAT CHAT, USER MESSAGE/HISTORY since label user message is not working as it should.
+# 2) ENR for messages (both teams and players).
+
+# Improvements, queries using several collections: "Media di Adli all'andata vs al ritorno"
+# to compute it 1) store all matches in a given collection 2) allow queries from player collection
+# to call internally queries of this new collection.
+
+
 class LLMInterface:
     """
     Class used to deliver smart insights and by translatating user prompts into query to MongoDB.
@@ -47,12 +57,15 @@ class LLMInterface:
     def __init__(self, max_message_history: int = 4) -> None:
         self.max_message_history = max_message_history
         self.data_manager = SerieADatabaseManager()
+
         self.light_llm_analyst = gpt3_analyst
         self.heavy_llm_analyst = gpt3_analyst
 
         self.light_llm_chat = gpt3_chat
         self.heavy_llm_chat = gpt4_chat
         self.team_is_created = self.data_manager.fanta_football_team is not None
+        # update the football stats with the latest matches / collect past data.
+        self.data_manager.update()
 
         # for debug purpose
         self.history = []
@@ -85,7 +98,7 @@ class LLMInterface:
                 prompt = self.prepare_prompt(
                     no_players_in_the_message,
                     message=message,
-                    style=style_very_concise,
+                    style=style_concise,
                 )
                 prompt = self.langchain_format(prompt, self.history)
                 response = self.light_llm_chat.invoke(prompt).content
@@ -107,35 +120,17 @@ class LLMInterface:
                 return response
             elif category == "suggestion":
                 pass
-                # prompt = self.prepare_prompt(
-                #     prompt_template=q, message=message
-                # )
-                # prompt = self.langchain_format(prompt, self.history[-2:])
-                # response = self.heavy_llm_analyst.invoke(prompt).content
-                # try:
-                #     eval(response)
-                # except:
-                #     return
-                # potential_responses = []
-                # for query in response:
-                #     try:
-                #         out = eval(query)
-                #         if out not in [None, {}]:
-                #             potential_responses.append(out)
-
-                #         prompt = self.prepare_prompt(
-                #         prompt_template=queries_prompt, message=message
-                #             )
-                #         prompt = self.langchain_format(prompt, self.history[-2:])
-                #         response = self.heavy_llm_analyst.invoke(prompt).content
 
             elif category == "research":
                 prompt = self.prepare_prompt(
-                    prompt_template=queries_prompt, message=message
+                    prompt_template=queries_prompt,
+                    message=message,
+                    history=self.history[-1:],
                 )
                 prompt = self.langchain_format(prompt, self.history[-2:])
                 query = self.heavy_llm_analyst.invoke(prompt).content
-                out = eval(query)
+                out = list(self.multiline_eval(query))
+                self.history.append([message, query])
                 return out
 
             elif category == "team_management":
@@ -145,6 +140,36 @@ class LLMInterface:
                 pass
 
             # TODO: Further integration with prepare_prompt as needed for other functionalities.
+
+    def multiline_eval(self, expr):
+        "Evaluate several lines of input, returning the result of the last line"
+        # Assuming 'self' is defined and has `data_manager.players_collection`
+        context = {
+            "self": self,
+        }
+        tree = ast.parse(expr, mode="exec")
+        eval_expr = ast.Expression(tree.body[-1].value)
+        exec_expr = ast.Module(tree.body[:-1], type_ignores=[])
+        exec(compile(exec_expr, "<string>", "exec"), context)
+        return eval(compile(eval_expr, "<string>", "eval"), context)
+
+    def is_query_safe(query):
+        # Example check: very basic and needs expansion
+        return query.startswith("self.data_manager")
+
+    def execute_query_safe(self, query):
+        if not self.is_query_safe(query):
+            logger.error("Query does not start with allowed operations")
+            return "UNSAFE QUERY"
+
+        return query
+
+    def execute_query_safely(self, query):
+        safe_query = self.parse_and_validate_query(query)
+        out = eval(
+            safe_query
+        )  # Still risky, consider alternatives or ensure strict validation
+        return out
 
     def prepare_prompt(self, prompt_template: str, **placeholders):
         prompt = PromptTemplate.from_template(template=prompt_template)
@@ -212,20 +237,6 @@ class LLMInterface:
 # if __name__ == "__main__":
 
 #     smart_llm = LLMInterface()
-#     message = "Ciao, potresti spiegarmi come si usa il chatbot?"
-#     response = smart_llm.chat_debug(message)
-#     print(response)
-
-#     # message = "ok: ho calhanoglu, celik, ostigard, Milan Đurić, swiderski, contini baranovsky, zielinki, tomori, calafiorni, gatti, baschirotto, kayode, politano, el sharawi, jankto, anguissa, musah, bajrami, de ketelare, reinders, duvan zapata, scamacca, caputo, thuram, dia, okafor and anche il grande sedorf."
-#     # response = smart_llm.chat_debug(message)
-#     # print(response)
-
-#     message = "Ok dammi la migliore formazione che posso utilizzare questa giornata, e spiegami il motivo della tua scelta."
-#     # message = "Ok ho scambiato tomori per kalulu."
-#     # message = "Mi hai messo in formazione il giocatore x, toglilo."
-#     # message = "Chi mi consigli di mettere tra Leao e Lautaro?"
-#     smart_llm.chat_debug(message)
-#     print(response)
 
 #     # gr.ChatInterface(
 #     #     fn=smart_llm.chat_debug,

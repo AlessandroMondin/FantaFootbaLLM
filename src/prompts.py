@@ -1,6 +1,6 @@
 from langchain.prompts import PromptTemplate
 
-style_concise = "informal and concise."
+style_concise = "informal and concise. Do not be verbose."
 style_very_concise = "informal and very concise. Do not be verbose."
 
 message_is_listing_players_prompt = """
@@ -38,7 +38,7 @@ no_players_in_the_message = """
 << OUTPUT >>
 In the previous message, the user user did not list the players of his/her 
 fantasy-football team. fantasy-football is fantacalcio in italian.
-Tell him to list them band then he will be able to continue. The output should be {style}
+Tell him that in order to use this chatbot, he needs to list them. The output should be {style}
 """
 
 team_added_prompt = """
@@ -71,6 +71,7 @@ Finally tell the user that he can ask you these questions:
 
 label_user_message = """
 The question of <<MESSAGE>> and given very last messages of the <<HISTORY>> are referred below as CONTEXT.
+Where <<HISTORY>> is the described in the text preceeding this prompt.
 Based on the rule described here below you need to classify the message.
 - "suggestion": if the CONTENT asks a question like "what is the best
  modulo I can use next match with which players? Which team should I use for my next match?"
@@ -107,7 +108,7 @@ Finally tell the user that he can ask you these questions:
 
 
 queries_prompt = """
-Given the question asked in <<MESSAGE>>, you need to translate the question into a
+Given the question asked in <<MESSAGE>>, which can be contextualised with <<HISTORY>>, you need to translate the question into a
 pymongo query used to retrieve the infomation asked. You should return in <<OUTPUT>> the query. Bear in mind the <<OUTPUT>>
 must be a python executable code, so just return the query withoud any other words so that eval(<<OUTPUT>>) executes the query.
 The pymongo contains 3 collections: "self.data_manager.forecast_collection", "self.data_manager.players_collection", "self.data_manager.championship_collection".
@@ -148,35 +149,34 @@ Bear in mind, add the disticct roles are: ['a', 'c', 'd', 'p'], a = attaccante, 
 Here an example of the the document present within the self.players_collection for the goal-keeper 'sommer'
 
 Player Document
-├── _id: 65e9da12f5babd71ce41e21d
+│
+├── _id: 65eed774d007ec44ea5c9e07
 ├── name: "rafael-leao"
 ├── role: "a"
 ├── team: "milan"
 └── matchStats: Array[23]
-    ├── [0]
-    │   ├── matchday: 1
-    │   ├── adjective_performance: "Alternato"
-    │   ├── grade: "6,5"
-    │   ├── bonus_malus: Array[empty]
-    │   └── description: "Per una volta è un attore non protagonista. Non partecipa ai due gol d..."
+    ├── [0] - {{ ... }}
     ├── [1]
     │   ├── matchday: 2
     │   ├── adjective_performance: "Determinante"
-    │   ├── grade: "7"
+    │   ├── grade: 7
     │   ├── bonus_malus: Array[1]
     │   │   └── [0]
     │   │       ├── title: "Assist"
     │   │       ├── value: "1"
-    │   │       └── description: "Una cosa buona, una no, una buona, una no. Salta spesso Schuurs, ma po..."
+    │   │       ├── grade_with_bm: 8
+    │   │       └── description: "Una cosa buona, una no, una buona, una no. Salta spesso Schuurs, ma po…"
     ├── [2]
     │   ├── matchday: 3
     │   ├── adjective_performance: "Pornografico"
-    │   ├── grade: "7,5"
+    │   ├── grade: 7.5
     │   ├── bonus_malus: Array[1]
     │   │   └── [0]
     │   │       ├── title: "Gol segnati"
     │   │       ├── value: "1"
+    │   │       ├── grade_with_bm: 10.5
     │   │       └── description: "L'ennesima serata da superstar. Quando punta l'avversario sfreccia in …"
+    ├── [...]
     └── [22] - {{ ... }}
 
 ---
@@ -207,8 +207,11 @@ User Document
     
 EXAMPLES:
 ---
+1)
 <<MESSAGE>>
 How many goals has leao scored this year?
+
+<<HISTORY>>
 
 <<OUTPUT>>
 self.data_manager.player_collection.aggregate([
@@ -234,10 +237,105 @@ self.data_manager.player_collection.aggregate([
     }}
 ])
 
+2)
+<<MESSAGE>>
+Who is the player who has received the most yellow cards and who has received the least?
+
+<<HISTORY>>
+
+<<OUTPUT>>
+self.data_manager.players_collection.aggregate([
+    {{"$unwind": "$matchStats"}},
+    {{"$unwind": "$matchStats.bonus_malus"}},
+    {{"$match": {{"matchStats.bonus_malus.title": "Ammonizione"}}, 
+    {{"$group": {{
+        "_id": "$name",
+        "totalYellowCards": {{"$sum": {{"$toInt": "$matchStats.bonus_malus.value"}}
+    }},
+    {{
+        "$facet": {{
+            "mostYellowCards": [
+                {{"$sort": {{"totalYellowCards": -1}}}},
+                {{"$limit": 1}}
+            ],
+            "fewestYellowCards": [
+                {{"$sort": {{"totalYellowCards": 1}}}},
+                {{"$limit": 1}}
+            ]
+        }}
+    }}
+])
+
+3)
+<<MESSAGE>>
+Was Calhanoglu's average higher in the first 10 games or in the last 5?
+
+<<HISTORY>>
+
+<<OUTPUT>>
+self.data_manager.players_collection.aggregate([
+    {{"$match": {{"name": "calhanoglu"}}}},
+    {{"$unwind": "$matchStats"}},
+    {{
+        "$group": {{
+            "_id": "$name",
+            "averageGradeFirst10": {{
+                "$avg": {{
+                    "$cond": [
+                        {{"$lte": ["$matchStats.matchday", 10]}},
+                        "$matchStats.grade",
+                        "$$REMOVE",
+                    ]
+                }}
+            }},
+            "averageGradeLast5": {{
+                "$avg": {{
+                    "$cond": [
+                        {{"$gte": ["$matchStats.matchday", 23]}},
+                        "$matchStats.grade",
+                        "$$REMOVE",
+                    ]
+                }}
+            }},
+        }}
+    }},
+    {{"$project": {{"_id": 0, "averageGradeFirst10": 1, "averageGradeLast5": 1}}}},
+])
+
+4)
+<<MESSAGE>>
+Ehi, how many goals per game has giroud scored this year??
+
+<<HISTORY>>
+
+<<OUTPUT>>
+self.data_manager.players_collection.aggregate([
+    {{ "$match": {{ "name": "giroud" }} }},
+    {{ "$addFields": {{ "numberOfGames": {{ "$size": "$matchStats" }} }} }},  # Assuming each document in matchStats represents a game
+    {{ "$unwind": "$matchStats" }},
+    {{ "$unwind": "$matchStats.bonus_malus" }},
+    {{ "$match": {{ "matchStats.bonus_malus.title": "Gol segnati" }} }},
+    {{ "$group": {{
+        "_id": "$name",
+        "totalGoals": {{ "$sum": {{ "$toInt": "$matchStats.bonus_malus.value" }} }},
+        "numberOfGames": {{ "$first": "$numberOfGames" }}
+    }} }},
+    {{ "$project": {{
+        "_id": 0,
+        "name": "$_id",
+        "totalGoals": 1,
+        "goalsPerGame": {{ "$divide": ["$totalGoals", "$numberOfGames"] }}
+    }} }}
+])
+
+
 ---
 
 <<MESSAGE>>
 {message}
+
+<<HISTORY>>
+{history}
 
 <<OUTPUT>>
 Pymongo query to reply what is asked in message.

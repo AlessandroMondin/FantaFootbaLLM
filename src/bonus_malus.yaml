@@ -1,0 +1,11 @@
+bonus_malus_table:
+  Ammonizione: -0.5 # Malus for receiving a yellow card.
+  Assist: 1 # Bonus for making an assist.
+  Autorete: -2 # Malus for scoring an own goal.
+  Espulsione: -1 # Malus for receiving a red card (being expelled from the game).
+  Gol segnati: 3 # Bonus for scoring a goal.
+  Gol subiti: -1 # Malus for a goalkeeper for each goal conceded.
+  Rigori parati: 3 # Bonus for a goalkeeper for saving a penalty.
+  Rigori sbagliati: -3 # Malus for missing a penalty shot.
+  Rigori segnati: 2 # Bonus for scoring a penalty shot.
+  Portiere imbattuto: 1 # Bonus for goalkeepers not conceding any goals in a match.
