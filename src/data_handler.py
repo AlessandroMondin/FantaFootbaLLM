@@ -38,6 +38,8 @@ class SerieADatabaseManager:
 
     url_serie_a_gen_info = "https://www.fantacalcio.it/serie-a/classifica"
     url_players = "https://www.fantacalcio.it/serie-a/squadre"
+    past_matches_url = "https://www.fantacalcio.it/pagelle/2023-24"
+    forecast_match_url = "https://www.fantacalcio.it/probabili-formazioni-serie-a"
 
     def __init__(self, bonus_malus: dict = bonus_malus_table):
         self.bonus_malus_table = bonus_malus_table
@@ -58,6 +60,9 @@ class SerieADatabaseManager:
         self._fanta_football_team = None
 
     def setup_mongo(self):
+        """
+        Creates mongoDB database, collections, add the teams and sets to 0 the first analysed matchday.
+        """
         # to create db and collection
         db = self.client[self.MONGO_DB_NAME]
         db[self.MONGO_DB_PLAYER_INFO]
@@ -69,23 +74,25 @@ class SerieADatabaseManager:
         # are in the same format used by same website to index pages of the results.
         # the current match_day is used to
 
-        serie_a_teams = self.scrape_teams(self.url_serie_a_gen_info)
+        serie_a_teams = self._scrape_teams(self.url_serie_a_gen_info)
 
         self.championship_collection.insert_one(
             {"serie_a_teams": serie_a_teams, "last_analysed_match_day": 0}
         )
 
     @property
+    # Gets the current match day of the championship.
+    #  Used to update data stored in mongodb up to the current match day.
     def current_match_day(self):
         if self._current_match_day is None:
-            self.championship_collection.find()
-            self._current_match_day = self.scrape_current_match_day(
+            self._current_match_day = self._scrape_current_match_day(
                 self.url_serie_a_gen_info
             )
 
         return self._current_match_day
 
     @property
+    # Retrieves from mongodb the lastest analysed match day.
     def last_analysed_match(self):
         if self._last_analysed_match is None:
             # query to get the value of the last_analysed_match_day
@@ -99,6 +106,8 @@ class SerieADatabaseManager:
         return self._last_analysed_match
 
     @last_analysed_match.setter
+    # Used to update the last_analysed_match_day after downloading and updating mongodb
+    # with the latest games.
     def last_analysed_match(self, new_val: float):
         self._last_analysed_match = new_val
         # Optionally update the database to reflect this new value
@@ -106,6 +115,8 @@ class SerieADatabaseManager:
         self.championship_collection.update_one({}, update_query)
 
     @property
+    # Retrieves from MongoDB the list of teams competing in the championship.
+    # This information is added to the collection within the setup method.
     def serie_a_teams(self):
         if self._serie_a_teams is None:
             query = ({}, {"_id": 0, "serie_a_teams": 1})
@@ -116,6 +127,8 @@ class SerieADatabaseManager:
         return self._serie_a_teams
 
     @property
+    # Retrieves all the players of the championship. Either by retrieving them from
+    # the dataset or by downloading them from the web.
     def serie_a_players(self):
         if self._serie_a_players is None:
             query = (
@@ -129,6 +142,7 @@ class SerieADatabaseManager:
         return self._serie_a_players
 
     @property
+    # Used to retrieve the fantafootball team of a given user.
     def fanta_football_team(self):
         if self._fanta_football_team is None:
             query = (
@@ -140,16 +154,24 @@ class SerieADatabaseManager:
         return self._fanta_football_team
 
     def update(self):
+        """
+        Updates all the MongoDB collections to contain the latest information available
+        on the web.
+        """
         self.update_players_past_matches()
         self.update_forecast_next_match()
 
     def update_players_past_matches(self):
+        """
+        Updates and stores all the past matches of the players in the corresponding
+        collection. This iteration continues until most recent match day.
+        """
         while self.last_analysed_match < self.current_match_day:
             next_match_day = self.last_analysed_match + 1
             for team in self.serie_a_teams:
-                url = f"https://www.fantacalcio.it/pagelle/2023-24/{team}/{next_match_day}"
+                url = f"{self.past_matches_url}/{team}/{next_match_day}"
 
-                for player_info in self.scrape_player_performace_match(url):
+                for player_info in self._scrape_player_performace_match(url):
 
                     # Check if the player's match stats for the specific matchday already exist.
                     existing_entry = self.players_collection.find_one(
@@ -165,7 +187,7 @@ class SerieADatabaseManager:
 
                     # Prepare the updated match stats.
                     grade = float(player_info["grade"].replace(",", "."))
-                    total_bonus = self.total_bonus(player_info["bonus_malus"])
+                    total_bonus = self._total_bonus(player_info["bonus_malus"])
                     updated_match_stats = {
                         "matchday": player_info["matchday"],
                         "adjective_performance": player_info["adjective_performance"],
@@ -200,17 +222,28 @@ class SerieADatabaseManager:
 
             self.last_analysed_match += 1
 
-    def total_bonus(self, bonus_malus_player: List) -> float:
+    def _total_bonus(self, bonus_malus_player: Dict) -> float:
+        """
+        Computes the total bonus by summing individual bonuses and maluses
+
+        Args:
+            bonus_malus_player (Dict): dict containing for each bonus type (key)
+                                        the corresponding value (+ or -)
+
+        Returns:
+            float: The total amount of bonus
+        """
         return sum(
             self.bonus_malus_table[item["title"]] * int(item["value"])
             for item in bonus_malus_player
         )
 
     def update_forecast_next_match(self):
-
-        url = "https://www.fantacalcio.it/probabili-formazioni-serie-a"
+        """
+        Retrieves information on the next matchday and stores them on MongoDB.
+        """
         # Retrieve webpage
-        competition_data = self.scrape_forecast_next_match(url=url)
+        competition_data = self._scrape_forecast_next_match(url=self.forecast_match_url)
 
         # Now, insert the competition data into the MongoDB collection
         self.forecast_collection.insert_one(
@@ -221,7 +254,15 @@ class SerieADatabaseManager:
         )
 
     @scrape_error_handler
-    def scrape_current_match_day(self, url) -> int:
+    def _scrape_current_match_day(self, url: str) -> int:
+        """Retrieves the current matchday.
+
+        Args:
+            url (str): URL used to get the matchday.
+
+        Returns:
+            current_matchday(int): current matchday of the championship
+        """
         response = requests.get(url, headers=self.HEADERS)
         soup = BeautifulSoup(response.text, "html.parser")
         games = soup.find_all("td", "played x3")
@@ -236,7 +277,16 @@ class SerieADatabaseManager:
         return current_matchday
 
     @scrape_error_handler
-    def scrape_teams(self, url: str = url_serie_a_gen_info) -> List:
+    def _scrape_teams(self, url: str = url_serie_a_gen_info) -> List:
+        """
+        Retrieves the names of the teams taking part of Serie A.
+
+        Args:
+            url (str, optional): URL used to get the team names. Defaults to url_serie_a_gen_info.
+
+        Returns:
+            List: List of the team names part of the championship.
+        """
         serie_a_teams = []
         response = requests.get(url, headers=self.HEADERS)
         soup = BeautifulSoup(response.text, "html.parser")
@@ -251,7 +301,18 @@ class SerieADatabaseManager:
         return serie_a_teams
 
     @scrape_error_handler
-    def scrape_players_by_team(self, url: str = url_players + "inter") -> List[Dict]:
+    def _scrape_players_by_team(self, url: str = url_players + "inter") -> List[Dict]:
+        """
+        Retrieves the names of the players taking part of Serie A.
+
+        Args:
+            url (str, optional): URL used to get the players names. It need an url like
+                                self.url_players + "team_name".
+
+        Returns:
+            List[Dict]: Returns a list of dictionaries where each dictionary is like
+                        {"name": player_name, "role": player_role, "team": player_team}
+        """
         team = url.split("/")[-1]
         team_players = []
         response = requests.get(url, headers=self.HEADERS)
@@ -266,23 +327,40 @@ class SerieADatabaseManager:
         return team_players
 
     def retrieve_players(self):
+        """
+        Downloads all the SerieA players from the WEB and stores them in MongoDB.
+        """
         players = []
         for team in self.serie_a_teams:
             url = f"{self.url_players}/{team}"
-            team_players = self.scrape_players_by_team(url=url)
+            team_players = self._scrape_players_by_team(url=url)
             players += team_players
 
         self.championship_collection.insert_one({"serie_a_players": players})
 
     @scrape_error_handler
-    def scrape_player_performace_match(
+    def _scrape_player_performace_match(
         self,
-        url: str = "https://www.fantacalcio.it/pagelle/2023-24/inter/1",
+        url: str,
     ) -> Generator[Tuple[Dict, Dict], None, None]:
+        """
+        For each game of a given team, it yields the performance of a given player.
+        The reason why a generator is used because player stats are contained into
+        the team stats and we want to return player stats. However, this way we can
+        make sure 1) to make a single request for each player 2) make sure that if the
+        request to the browser fails, we are notified thanks to the scrape_error_handler
+        decorator
+
+        Args:
+            url (str): URL of the team game to analyse. Like: "https://www.fantacalcio.it/pagelle/2023-24/inter/1".
+
+        Yields:
+            Generator[Tuple[Dict, Dict], None, None]: _description_
+        """
 
         team = url.split("/")[-2]
         next_match_day = self.last_analysed_match + 1
-        url = f"https://www.fantacalcio.it/pagelle/2023-24/{team}/{next_match_day}"
+        url = f"{self.past_matches_url}/{team}/{next_match_day}"
 
         # Retrieve webpage
         response = requests.get(url)
@@ -333,7 +411,16 @@ class SerieADatabaseManager:
                 }
 
     @scrape_error_handler
-    def scrape_forecast_next_match(self, url):
+    def _scrape_forecast_next_match(self, url) -> List:
+        """
+        Retrieves information on the next Serie A matchday.
+
+        Args:
+            url (str): url of the next matchday.
+
+        Returns:
+            List: A list containing all the forecasts of the following match.
+        """
         response = requests.get(url)
 
         # Parse the content with Beautiful Soup
