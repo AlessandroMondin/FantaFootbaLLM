@@ -70,14 +70,13 @@ Finally tell the user that he can ask you these questions:
 """
 
 label_user_message = """
-The question of <<MESSAGE>> and given very last messages of the <<HISTORY>> are referred below as CONTEXT.
-Where <<HISTORY>> is the described in the text preceeding this prompt.
-Based on the rule described here below you need to classify the message.
+If there is any text prior to this prompt, consider it as <<HISTORY>>
+Based on the <<MESSAGE>> and <<HISTORY>> that we refer as CONTENT:
 - "suggestion": if the CONTENT asks a question like "what is the best
- modulo I can use next match with which players? Which team should I use for my next match?"
+ modulo I can use next match with which players? Which team should I use for my next match?
 - "research": if the CONTENT asks a question like: What is the average score of this player in the last 3 matches he played?
  How many goals has this player scoared? How many yellow card has this player taken? How many goals has this team scored in the last 5 matches?
-How many goals has this goalkeeper received in the last 5 matches? Does this player score more when the other team uses which module?
+How many goals has this goalkeeper received in the last 5 matches? Does this player score more when the other team uses which module? Give me the 5 players of atalanta with best average grade.
 - "team_management": if the CONTENT asks a question like: I have traded "player 1" and "player 2" for "player 3" and "player 4". Can you show me
     my players? Can you delete "player a" from my team?
 - "info": if CONTENT refards information on how to use the chatbot, which questions to ask etc.
@@ -326,6 +325,23 @@ self.data_manager.players_collection.aggregate([
         "totalGoals": 1,
         "goalsPerGame": {{ "$divide": ["$totalGoals", "$numberOfGames"] }}
     }} }}
+])
+5)
+<<MESSAGE>>
+Dammi i cinque difensori di atalanta, sassuolo, e cagliari con fantamedia piu' alta
+
+<<HISTORY>>
+
+<<OUTPUT>>
+self.data_manager.players_collection.aggregate([
+    {{ "$match": {{ "$or": [{{ "team": "atalanta" }}, {{ "team": "sassuolo" }}, {{ "team": "cagliari" }}], "role": "d" }} }},
+    {{ "$unwind": "$matchStats" }},
+    {{ "$group": {{
+        "_id": "$name",
+        "averageGradeWithBM": {{ "$avg": "$matchStats.grade_with_bm" }}
+    }} }},
+    {{ "$sort": {{ "averageGradeWithBM": -1 }} }},
+    {{ "$limit": 5 }}
 ])
 
 

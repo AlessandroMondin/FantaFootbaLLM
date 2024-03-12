@@ -112,9 +112,7 @@ class LLMInterface:
             category = self.light_llm_analyst.invoke(prompt).content
 
             if category == "info":
-                prompt = self.prepare_prompt(
-                    prompt_template=info_prompt, message=message
-                )
+                prompt = self.prepare_prompt(prompt_template=info_prompt, message=message)
                 prompt = self.langchain_format(prompt, self.history[-2:])
                 response = self.light_llm_analyst.invoke(prompt).content
                 return response
@@ -131,7 +129,7 @@ class LLMInterface:
                 query = self.heavy_llm_analyst.invoke(prompt).content
                 out = list(self.multiline_eval(query))
                 self.history.append([message, query])
-                return out
+                return [out, query]
 
             elif category == "team_management":
                 pass
@@ -160,6 +158,7 @@ class LLMInterface:
     def execute_query_safe(self, query):
         if not self.is_query_safe(query):
             logger.error("Query does not start with allowed operations")
+            # TODO return different error
             return "UNSAFE QUERY"
 
         return query
@@ -197,9 +196,7 @@ class LLMInterface:
             user_written_name = unidecode(user_written_name)
             # Extract the best match above the threshold
             identified = False
-            best_match, score = process.extractOne(
-                user_written_name, ground_truth_names
-            )
+            best_match, score = process.extractOne(user_written_name, ground_truth_names)
             if score >= self.fuzzy_threshold:
                 # identified_players.append((user_written_name, best_match, score))
                 identified_players.append(best_match)

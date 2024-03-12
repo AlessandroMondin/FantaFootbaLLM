@@ -1,10 +1,25 @@
-from typing import List, Dict, Generator, Tuple
+import time
+from typing import List, Dict, Generator, Tuple, Union
 import yaml
-from pymongo import MongoClient
+
+import chromedriver_autoinstaller
 import requests
+import ssl
+
 from bs4 import BeautifulSoup
+from pymongo import MongoClient
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
+
 
 from utils import scrape_error_handler
+
+# certificate to download chrome driver
+ssl._create_default_https_context = ssl._create_stdlib_context
 
 # Load the YAML file
 with open("src/bonus_malus.yaml", "r") as file:
@@ -58,6 +73,9 @@ class SerieADatabaseManager:
         self._serie_a_teams = None
         self._serie_a_players = None
         self._fanta_football_team = None
+
+        # for methods
+        self.driver = None
 
     def setup_mongo(self):
         """
@@ -160,6 +178,7 @@ class SerieADatabaseManager:
         """
         self.update_players_past_matches()
         self.update_forecast_next_match()
+        self.close_driver()
 
     def update_players_past_matches(self):
         """
@@ -169,26 +188,19 @@ class SerieADatabaseManager:
         while self.last_analysed_match < self.current_match_day:
             next_match_day = self.last_analysed_match + 1
             for team in self.serie_a_teams:
+
                 url = f"{self.past_matches_url}/{team}/{next_match_day}"
 
-                for player_info in self._scrape_player_performace_match(url):
+                players_info = self._scrape_players_performance(url)
+                if players_info is None:
+                    players_info = self._selenium_scrape_players_performance(url=url)
 
-                    # Check if the player's match stats for the specific matchday already exist.
-                    existing_entry = self.players_collection.find_one(
-                        {
-                            "name": player_info["name"],
-                            "role": player_info["role"],
-                            "team": player_info["team"],
-                            "matchStats": {
-                                "$elemMatch": {"matchday": player_info["matchday"]}
-                            },
-                        }
-                    )
+                for player_info in players_info:
 
                     # Prepare the updated match stats.
                     grade = float(player_info["grade"].replace(",", "."))
                     total_bonus = self._total_bonus(player_info["bonus_malus"])
-                    updated_match_stats = {
+                    match_stats = {
                         "matchday": player_info["matchday"],
                         "adjective_performance": player_info["adjective_performance"],
                         "grade": grade,
@@ -197,28 +209,16 @@ class SerieADatabaseManager:
                         "description": player_info["description"],
                     }
 
-                    # If the entry exists, update the existing match stats.
-                    if existing_entry:
-                        self.players_collection.update_one(
-                            {
-                                "name": player_info["name"],
-                                "role": player_info["role"],
-                                "team": player_info["team"],
-                                "matchStats.matchday": player_info["matchday"],
-                            },
-                            {"$set": {"matchStats.$": updated_match_stats}},
-                        )
-                    else:
-                        # If the entry does not exist, add the new match stats.
-                        self.players_collection.update_one(
-                            {
-                                "name": player_info["name"],
-                                "role": player_info["role"],
-                                "team": player_info["team"],
-                            },
-                            {"$push": {"matchStats": updated_match_stats}},
-                            upsert=True,
-                        )
+                    # If the entry does not exist, add the new match stats.
+                    self.players_collection.update_one(
+                        {
+                            "name": player_info["name"],
+                            "role": player_info["role"],
+                            "team": player_info["team"],
+                        },
+                        {"$push": {"matchStats": match_stats}},
+                        upsert=True,
+                    )
 
             self.last_analysed_match += 1
 
@@ -339,23 +339,20 @@ class SerieADatabaseManager:
         self.championship_collection.insert_one({"serie_a_players": players})
 
     @scrape_error_handler
-    def _scrape_player_performace_match(
-        self,
-        url: str,
-    ) -> Generator[Tuple[Dict, Dict], None, None]:
+    def _scrape_players_performance(self, url: str) -> Union[List[Dict], None]:
         """
-        For each game of a given team, it yields the performance of a given player.
-        The reason why a generator is used because player stats are contained into
-        the team stats and we want to return player stats. However, this way we can
-        make sure 1) to make a single request for each player 2) make sure that if the
-        request to the browser fails, we are notified thanks to the scrape_error_handler
-        decorator
+        For each game of a given team, it returns a list of the performances of all the
+        players of a given team who played a game. If any duplicated are found on the other
+        hand, the function returns None. The reason is that duplicates are fake tags used
+        by the website to confuse scrapers. If this function returns None, another scraper
+        with Selenium will be used.
+
 
         Args:
             url (str): URL of the team game to analyse. Like: "https://www.fantacalcio.it/pagelle/2023-24/inter/1".
 
-        Yields:
-            Generator[Tuple[Dict, Dict], None, None]: _description_
+        Returns:
+            List[Dict]: A list of dictionaries, each containing the performance data of a player.
         """
 
         team = url.split("/")[-2]
@@ -368,19 +365,24 @@ class SerieADatabaseManager:
         # Parse the content with Beautiful Soup
         soup = BeautifulSoup(response.text, "html.parser")
 
-        # due to the html of:
-        # https://www.fantacalcio.it/pagelle/2023-24/inter/1
-        for role in ["p", "d", "c", "a"]:
+        player_info_list = []  # Initialize an empty list to store player info
 
-            report = soup.find_all(
-                "article", class_=f"report pill pill-card role-{role}"
-            )
+        # many pages contain fake duplicates. If any duplicates are detected,
+        # we return None.
+        report = soup.select('article[class^="report pill pill-card"]')
+        names = set()
+        for r in report:
+            name = r.find("a", class_="player-name player-link").find("span").text
+            names.add(name)
+            if name in names:
+                return None
+
+        for role in ["p", "d", "c", "a"]:
+            report = soup.find_all("article", class_=f"report pill pill-card role-{role}")
 
             for player_tag in report:
                 team = url.split("/")[-2]
                 player_name_tag = player_tag.find("a", "player-name")
-                # some of the children tags do not contain players information
-                # and therefore we skip them.
                 if player_name_tag is None:
                     continue
                 player_name = player_name_tag["href"].split("/")[-2]
@@ -394,21 +396,25 @@ class SerieADatabaseManager:
                     description += desc_tag.text
                 bonus_malus = []
                 for b_m in player_tag.find_all("figure", class_="icon bonus-icon"):
-                    # Extracting the title and data-value, if data-value is not available it defaults to None
                     title = b_m.get("title", "").strip()
                     value = b_m.get("data-value", None)
                     bonus_malus.append({"title": title, "value": value})
 
-                yield {
-                    "name": player_name,
-                    "role": role,
-                    "team": team,
-                    "matchday": next_match_day,
-                    "adjective_performance": adjective_performance,
-                    "grade": grade,
-                    "bonus_malus": bonus_malus,
-                    "description": description,
-                }
+                # Instead of yielding, append the player info to the list
+                player_info_list.append(
+                    {
+                        "name": player_name,
+                        "role": role,
+                        "team": team,
+                        "matchday": next_match_day,
+                        "adjective_performance": adjective_performance,
+                        "grade": grade,
+                        "bonus_malus": bonus_malus,
+                        "description": description,
+                    }
+                )
+
+        return player_info_list
 
     @scrape_error_handler
     def _scrape_forecast_next_match(self, url) -> List:
@@ -520,6 +526,94 @@ class SerieADatabaseManager:
                 )
 
         return competition_data
+
+    def setup_selenium_driver(self):
+        options = Options()
+        # this works, options.headless = True fails.
+        options.add_argument("--headless")
+        chromedriver_autoinstaller.install()
+        self.driver = webdriver.Chrome(options=options)
+
+    def _selenium_scrape_players_performance(self, url) -> List:
+        if self.driver is None:
+            self.setup_selenium_driver()
+        self.driver.get(url)
+
+        next_match_day = self.last_analysed_match + 1
+        team = url.split("/")[-2]
+        players_info = []
+
+        roles = ["p", "d", "c", "a"]  # Define the roles you are looking for
+
+        try:
+            for role in roles:
+                # Construct the CSS selector based on the role
+                role_selector = f"article.report.pill.pill-card.role-{role}"
+                # Wait for the elements to be present
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_all_elements_located((By.CSS_SELECTOR, role_selector))
+                )
+                player_elements = self.driver.find_elements(
+                    By.CSS_SELECTOR, role_selector
+                )
+
+                for player in player_elements:
+                    player_info_section = player.find_element(
+                        By.CSS_SELECTOR, "div.player-info"
+                    )
+
+                    player_name_link = player_info_section.find_element(
+                        By.CSS_SELECTOR, "a.player-name.player-link"
+                    )
+                    if not player_name_link.is_displayed():
+                        continue
+                    player_name = player_name_link.get_attribute("href").split("/")[-2]
+
+                    adjective_performance = player_info_section.find_element(
+                        By.CSS_SELECTOR, "h3.text-primary"
+                    ).text.strip()
+
+                    grade = player_info_section.find_element(
+                        By.CSS_SELECTOR, ".badge.grade"
+                    ).text.strip()
+
+                    description_paragraphs = player_info_section.find_elements(
+                        By.CSS_SELECTOR, "div.col p"
+                    )
+                    description = " ".join(
+                        desc.text.strip() for desc in description_paragraphs
+                    )
+
+                    bonus_malus_elements = player_info_section.find_elements(
+                        By.CSS_SELECTOR, "figure.icon.bonus-icon"
+                    )
+                    bonus_malus = []
+                    for b_m in bonus_malus_elements:
+                        title = b_m.get_attribute("title").strip()
+                        value = b_m.get_attribute("data-value")
+                        bonus_malus.append({"title": title, "value": value})
+
+                    players_info.append(
+                        {
+                            "name": player_name,
+                            "team": team,
+                            "role": role,
+                            "adjective_performance": adjective_performance,
+                            "matchday": next_match_day,
+                            "grade": grade,
+                            "bonus_malus": bonus_malus,
+                            "description": description,
+                        }
+                    )
+
+        except Exception as e:
+            print(f"Error during web scraping: {e}")
+
+        return players_info
+
+    def close_driver(self):
+        if self.driver is not None:
+            self.driver.quit()
 
 
 if __name__ == "__main__":
