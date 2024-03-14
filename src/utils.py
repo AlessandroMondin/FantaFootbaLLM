@@ -1,11 +1,4 @@
 import logging
-import os
-import sys
-import zipfile
-
-import requests
-import wget
-
 from functools import wraps
 
 
@@ -13,6 +6,8 @@ def get_logger(logger_name: str, logger_level: int = logging.DEBUG) -> logging.L
     # Configure logger
     logger = logging.getLogger(logger_name)  # Use the provided logger_name
     logger.setLevel(logger_level)  # Use the provided logger_level
+    # Prevent the logger from propagating messages to ancestor loggers
+    logger.propagate = False
 
     # Check if logger already has handlers
     if not logger.handlers:

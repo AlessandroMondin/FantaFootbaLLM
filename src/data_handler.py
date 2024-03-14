@@ -1,6 +1,6 @@
 import time
-from typing import List, Dict, Generator, Tuple, Union
 import yaml
+from typing import List, Dict
 
 import chromedriver_autoinstaller
 import requests
@@ -9,14 +9,14 @@ import ssl
 from bs4 import BeautifulSoup
 from pymongo import MongoClient
 from selenium import webdriver
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
 
 
-from utils import scrape_error_handler
+from utils import scrape_error_handler, logger
 
 # certificate to download chrome driver
 ssl._create_default_https_context = ssl._create_stdlib_context
@@ -43,9 +43,17 @@ class SerieADatabaseManager:
     Class used to scrape information on Leghe Serie A and to store them into MongoDB.
     """
 
-    HEADERS = {
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.142 Safari/537.36"
-    }
+    HEADERS = [
+        {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.142 Safari/537.36"
+        },
+        {
+            "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36"
+        },
+        {
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.122 Safari/537.36"
+        },
+    ]
     MONGO_DB_NAME = "FantaCalcioLLM"
     MONGO_DB_SERIE_A_GEN_INFO = "user_serie_a_info"
     MONGO_DB_PLAYER_INFO = "players"
@@ -76,6 +84,9 @@ class SerieADatabaseManager:
 
         # for methods
         self.driver = None
+        self.request_count = 0
+        self.current_user_agent_index = 0
+        self.request_limit = None
 
     def setup_mongo(self):
         """
@@ -181,24 +192,17 @@ class SerieADatabaseManager:
         self.close_driver()
 
     def update_players_past_matches(self):
-        """
-        Updates and stores all the past matches of the players in the corresponding
-        collection. This iteration continues until most recent match day.
-        """
         while self.last_analysed_match < self.current_match_day:
             next_match_day = self.last_analysed_match + 1
             for team in self.serie_a_teams:
-
                 url = f"{self.past_matches_url}/{team}/{next_match_day}"
 
+                # Attempt to scrape with bs4 first
                 players_info = self._scrape_players_performance(url)
-                if players_info is None:
-                    players_info = self._selenium_scrape_players_performance(url=url)
+                # Fallback to Selenium if bs4 returns None
 
                 for player_info in players_info:
-
-                    # Prepare the updated match stats.
-                    grade = float(player_info["grade"].replace(",", "."))
+                    grade = player_info["grade"]
                     total_bonus = self._total_bonus(player_info["bonus_malus"])
                     match_stats = {
                         "matchday": player_info["matchday"],
@@ -208,8 +212,6 @@ class SerieADatabaseManager:
                         "grade_with_bm": grade + total_bonus,
                         "description": player_info["description"],
                     }
-
-                    # If the entry does not exist, add the new match stats.
                     self.players_collection.update_one(
                         {
                             "name": player_info["name"],
@@ -219,7 +221,9 @@ class SerieADatabaseManager:
                         {"$push": {"matchStats": match_stats}},
                         upsert=True,
                     )
-
+            logger.info(
+                f"Stored match {self.last_analysed_match+1}, still {self.current_match_day - (self.last_analysed_match + 1)} to be stored."
+            )
             self.last_analysed_match += 1
 
     def _total_bonus(self, bonus_malus_player: Dict) -> float:
@@ -263,7 +267,7 @@ class SerieADatabaseManager:
         Returns:
             current_matchday(int): current matchday of the championship
         """
-        response = requests.get(url, headers=self.HEADERS)
+        response = requests.get(url, headers=self.HEADERS[0])
         soup = BeautifulSoup(response.text, "html.parser")
         games = soup.find_all("td", "played x3")
         # in order to find the latest game we check for the max. The reason is that
@@ -288,7 +292,7 @@ class SerieADatabaseManager:
             List: List of the team names part of the championship.
         """
         serie_a_teams = []
-        response = requests.get(url, headers=self.HEADERS)
+        response = requests.get(url, headers=self.HEADERS[0])
         soup = BeautifulSoup(response.text, "html.parser")
         teams = soup.find_all("a", "team-name team-link main ml-2")
         for team in teams:
@@ -315,7 +319,7 @@ class SerieADatabaseManager:
         """
         team = url.split("/")[-1]
         team_players = []
-        response = requests.get(url, headers=self.HEADERS)
+        response = requests.get(url, headers=self.HEADERS[0])
         soup = BeautifulSoup(response.text, "html.parser")
         player_tags = soup.select(".player-info")
         for player in player_tags:
@@ -337,84 +341,6 @@ class SerieADatabaseManager:
             players += team_players
 
         self.championship_collection.insert_one({"serie_a_players": players})
-
-    @scrape_error_handler
-    def _scrape_players_performance(self, url: str) -> Union[List[Dict], None]:
-        """
-        For each game of a given team, it returns a list of the performances of all the
-        players of a given team who played a game. If any duplicated are found on the other
-        hand, the function returns None. The reason is that duplicates are fake tags used
-        by the website to confuse scrapers. If this function returns None, another scraper
-        with Selenium will be used.
-
-
-        Args:
-            url (str): URL of the team game to analyse. Like: "https://www.fantacalcio.it/pagelle/2023-24/inter/1".
-
-        Returns:
-            List[Dict]: A list of dictionaries, each containing the performance data of a player.
-        """
-
-        team = url.split("/")[-2]
-        next_match_day = self.last_analysed_match + 1
-        url = f"{self.past_matches_url}/{team}/{next_match_day}"
-
-        # Retrieve webpage
-        response = requests.get(url)
-
-        # Parse the content with Beautiful Soup
-        soup = BeautifulSoup(response.text, "html.parser")
-
-        player_info_list = []  # Initialize an empty list to store player info
-
-        # many pages contain fake duplicates. If any duplicates are detected,
-        # we return None.
-        report = soup.select('article[class^="report pill pill-card"]')
-        names = set()
-        for r in report:
-            name = r.find("a", class_="player-name player-link").find("span").text
-            names.add(name)
-            if name in names:
-                return None
-
-        for role in ["p", "d", "c", "a"]:
-            report = soup.find_all("article", class_=f"report pill pill-card role-{role}")
-
-            for player_tag in report:
-                team = url.split("/")[-2]
-                player_name_tag = player_tag.find("a", "player-name")
-                if player_name_tag is None:
-                    continue
-                player_name = player_name_tag["href"].split("/")[-2]
-                adjective_performance = player_tag.find(
-                    "h3", "text-primary"
-                ).text.replace("\n", "")
-                grade = player_tag.find("div", class_="badge grade").text
-                description = ""
-                description_paragraphs = player_tag.select("div.col p")
-                for desc_tag in description_paragraphs:
-                    description += desc_tag.text
-                bonus_malus = []
-                for b_m in player_tag.find_all("figure", class_="icon bonus-icon"):
-                    title = b_m.get("title", "").strip()
-                    value = b_m.get("data-value", None)
-                    bonus_malus.append({"title": title, "value": value})
-
-                # Instead of yielding, append the player info to the list
-                player_info_list.append(
-                    {
-                        "name": player_name,
-                        "role": role,
-                        "team": team,
-                        "matchday": next_match_day,
-                        "adjective_performance": adjective_performance,
-                        "grade": grade,
-                        "bonus_malus": bonus_malus,
-                        "description": description,
-                    }
-                )
-
-        return player_info_list
 
     @scrape_error_handler
     def _scrape_forecast_next_match(self, url) -> List:
@@ -527,95 +453,233 @@ class SerieADatabaseManager:
 
         return competition_data
 
+    @scrape_error_handler
+    def _extract_player_info(self, element, source, url: str):
+        next_match_day = self.last_analysed_match + 1
+        player_info_list = []
+
+        roles = ["p", "d", "c", "a"]
+        for role in roles:
+            role_selector = f"article.report.pill.pill-card.role-{role}"
+            report = self.get_elements_by_css(
+                css_selector=role_selector,
+                source=source,
+                element=element,
+                webdriver_wait=True,
+            )
+            for player_tag in report:
+                team = url.split("/")[-2]
+                player_name_tag = self.get_elements_by_css(
+                    "a.player-name", source=source, element=player_tag
+                )[0]
+                if player_name_tag is None:
+                    continue
+                player_name_tag = self.get_elements_by_css(
+                    "", source=source, element=player_name_tag, attribute_name="href"
+                )[0]
+                player_name = player_name_tag.split("/")[-2]
+                adjective_performance = self.get_elements_by_css(
+                    source=source, css_selector="h3.text-primary", element=player_tag
+                )[0]
+                adjective_performance = adjective_performance.text.replace("\n", "")
+
+                grade = self.get_elements_by_css(
+                    source=source, css_selector="div.badge.grade", element=player_tag
+                )[0]
+
+                grade = float(grade.text.replace(",", "."))
+                description = ""
+                description = self.get_elements_by_css(
+                    source=source, css_selector="div.col p", element=player_tag
+                )[0]
+                description = description.text
+                bonus_malus = []
+
+                bonuses_maluses = self.get_elements_by_css(
+                    source=source,
+                    css_selector="figure.icon.bonus-icon",
+                    element=player_tag,
+                )
+                for b_m in bonuses_maluses:
+                    title = self.get_elements_by_css(
+                        source=source,
+                        css_selector="",
+                        element=b_m,
+                        attribute_name="title",
+                    )[0]
+
+                    value = self.get_elements_by_css(
+                        source=source,
+                        css_selector="",
+                        element=b_m,
+                        attribute_name="data-value",
+                    )[0]
+                    value = int(value)
+                    bonus_malus.append({"title": title, "value": value})
+
+                # Instead of yielding, append the player info to the list
+                player_info_list.append(
+                    {
+                        "name": player_name,
+                        "role": role,
+                        "team": team,
+                        "matchday": next_match_day,
+                        "adjective_performance": adjective_performance,
+                        "grade": grade,
+                        "bonus_malus": bonus_malus,
+                        "description": description,
+                    }
+                )
+        return player_info_list
+
+    def get_elements_by_css(
+        self,
+        css_selector,
+        source,
+        element=None,
+        attribute_name=None,
+        webdriver_wait=False,
+    ) -> List:
+        """
+        Fetch elements or their attributes using a CSS selector with either BeautifulSoup or Selenium.
+
+        Args:
+            css_selector (str): The CSS selector to find elements by.
+            source (str): Indicates whether to use 'bs4' or 'selenium'.
+            element (Optional[Union[BeautifulSoup, WebElement]]): The element to search within. If None, search within the whole page.
+            attribute_name (Optional[str]): The name of the attribute to extract from the found elements. If None, return the elements themselves.
+
+        Returns:
+            List[Union[Tag, WebElement, str]]: A list of found elements or their attributes. If is the attribute_name is specified, it returns a string.
+        """
+
+        if source == "bs4":
+            if css_selector != "":
+                element = element.select(css_selector)
+            else:
+                element = [element]
+            if attribute_name:
+                element = [elem.get(attribute_name, "") for elem in element]
+
+        elif source == "selenium":
+            if css_selector != "":
+                if webdriver_wait:
+                    element = self._get_elements_selenium(css_selector, element)
+                else:
+                    element = element.find_elements(By.CSS_SELECTOR, css_selector)
+            else:
+                element = [element]
+            if attribute_name:
+                element = [
+                    elem.get_attribute(attribute_name)
+                    for elem in element
+                    if elem.is_displayed()
+                ]
+            else:
+                element = [elem for elem in element if elem.is_displayed()]
+
+        return element
+
+    def _determine_source(self, url, css_selector, callback):
+        """Fetch content from URL and process it using a CSS selector and a callback function."""
+        response = requests.get(url)
+        soup = BeautifulSoup(response.text, "html.parser")
+        while "ERROR" in soup.find("title").text:
+            logger.warning(
+                "Rate limit error encountered. Sleeping for 2 minutes and 30 seconds."
+            )
+            time.sleep(150)
+            response = requests.get(url)
+            soup = BeautifulSoup(response.text, "html.parser")
+        elements = soup.select(css_selector)
+        result = [callback(element) for element in elements]
+        return "selenium" if len(result) != len(set(result)) else "bs4"
+
+    def _scrape_players_performance(self, url: str):
+        def extract_player_name(element):
+            """Extract and return the player's name from a BeautifulSoup tag."""
+            return element.find("a", class_="player-name player-link").find("span").text
+
+        source = self._determine_source(
+            url=url,
+            css_selector='article[class^="report pill pill-card"]',
+            callback=extract_player_name,
+        )
+        element = self._get_initial_element(url, source)
+        player_info_list = self._extract_player_info(element, source, url)
+        return player_info_list
+
+    def _get_initial_element(self, url, source, request_limit=15):
+        self.request_limit = request_limit  # Update request limit if provided
+        if source == "selenium":
+            self.request_count += 1  # Increment request count
+            if self.driver is None or self.request_count >= self.request_limit:
+                if self.driver is not None:
+                    self.close_driver()  # Close the existing driver if it exists
+                self.setup_selenium_driver()  # Setup a new driver
+                self.request_count = (
+                    0  # Reset request count after refreshing the driver
+                )
+
+            self.driver.get(url)
+            soup = BeautifulSoup(self.driver.page_source, "html.parser")
+            while "ERROR" in soup.find("title").text:
+                logger.warning(
+                    "Rate limit error encountered. Sleeping for 2 minutes and 30 seconds."
+                )
+                time.sleep(150)
+                response = requests.get(url)
+                soup = BeautifulSoup(response.text, "html.parser")
+
+            return self.driver
+        else:
+            current_header = self.current_user_agent_index
+            response = requests.get(url, headers=self.HEADERS[current_header])
+            self.current_user_agent_index = (self.current_user_agent_index + 1) % len(
+                self.HEADERS
+            )
+            soup = BeautifulSoup(response.text, "html.parser")
+            while "ERROR" in soup.find("title").text:
+                logger.warning(
+                    "Rate limit error encountered. Sleeping for 2 minutes and 30 seconds."
+                )
+                time.sleep(150)
+                response = requests.get(url)
+                soup = BeautifulSoup(response.text, "html.parser")
+            return soup
+
+    def _get_elements_selenium(self, css_selector, driver):
+        """Retrieve elements using Selenium, waiting until they are loaded."""
+        try:
+            # Wait up to 10 seconds before throwing a TimeoutException unless
+            # it finds the element to return based on the css_selector.
+            elements = WebDriverWait(driver, 10).until(
+                EC.presence_of_all_elements_located((By.CSS_SELECTOR, css_selector))
+            )
+            return elements
+        except TimeoutException:
+            print("Timeout while waiting for elements.")
+            return []
+
     def setup_selenium_driver(self):
         options = Options()
-        # this works, options.headless = True fails.
         options.add_argument("--headless")
+        # Cycle through the user agents
+        user_agent = self.HEADERS[self.current_user_agent_index]
+        options.add_argument(f"user-agent={user_agent}")
         chromedriver_autoinstaller.install()
         self.driver = webdriver.Chrome(options=options)
-
-    def _selenium_scrape_players_performance(self, url) -> List:
-        if self.driver is None:
-            self.setup_selenium_driver()
-        self.driver.get(url)
-
-        next_match_day = self.last_analysed_match + 1
-        team = url.split("/")[-2]
-        players_info = []
-
-        roles = ["p", "d", "c", "a"]  # Define the roles you are looking for
-
-        try:
-            for role in roles:
-                # Construct the CSS selector based on the role
-                role_selector = f"article.report.pill.pill-card.role-{role}"
-                # Wait for the elements to be present
-                WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_all_elements_located((By.CSS_SELECTOR, role_selector))
-                )
-                player_elements = self.driver.find_elements(
-                    By.CSS_SELECTOR, role_selector
-                )
-
-                for player in player_elements:
-                    player_info_section = player.find_element(
-                        By.CSS_SELECTOR, "div.player-info"
-                    )
-
-                    player_name_link = player_info_section.find_element(
-                        By.CSS_SELECTOR, "a.player-name.player-link"
-                    )
-                    if not player_name_link.is_displayed():
-                        continue
-                    player_name = player_name_link.get_attribute("href").split("/")[-2]
-
-                    adjective_performance = player_info_section.find_element(
-                        By.CSS_SELECTOR, "h3.text-primary"
-                    ).text.strip()
-
-                    grade = player_info_section.find_element(
-                        By.CSS_SELECTOR, ".badge.grade"
-                    ).text.strip()
-
-                    description_paragraphs = player_info_section.find_elements(
-                        By.CSS_SELECTOR, "div.col p"
-                    )
-                    description = " ".join(
-                        desc.text.strip() for desc in description_paragraphs
-                    )
-
-                    bonus_malus_elements = player_info_section.find_elements(
-                        By.CSS_SELECTOR, "figure.icon.bonus-icon"
-                    )
-                    bonus_malus = []
-                    for b_m in bonus_malus_elements:
-                        title = b_m.get_attribute("title").strip()
-                        value = b_m.get_attribute("data-value")
-                        bonus_malus.append({"title": title, "value": value})
-
-                    players_info.append(
-                        {
-                            "name": player_name,
-                            "team": team,
-                            "role": role,
-                            "adjective_performance": adjective_performance,
-                            "matchday": next_match_day,
-                            "grade": grade,
-                            "bonus_malus": bonus_malus,
-                            "description": description,
-                        }
-                    )
-
-        except Exception as e:
-            print(f"Error during web scraping: {e}")
-
-        return players_info
+        # Update index for next user agent, cycle back to start if at end of list
+        self.current_user_agent_index = (self.current_user_agent_index + 1) % len(
+            self.HEADERS
+        )
 
     def close_driver(self):
         if self.driver is not None:
             self.driver.quit()
+            self.driver = None
 
 
 if __name__ == "__main__":
     scraper = SerieADatabaseManager()
-    scraper
+    scraper.update()
