@@ -1,6 +1,6 @@
 from pymongo import MongoClient
 
-from utils import logger
+from utils import logger, validate_year_range
 from scrapers.serie_a_scraper import SerieA_Scraper
 
 
@@ -125,33 +125,25 @@ class SerieADatabaseManager:
         self.update_players_past_matches()
         self.update_forecast_next_match()
 
-    def update_players_past_matches(self):
+    def update_players_past_matches(self, season="2023-24"):
+        # Check if the season is in a valid format
+        valid_season = validate_year_range(season)
+        if valid_season is False:
+            raise ValueError(
+                f"The value of the argument `season` must be like: '2023-24'. Got value {season}"
+            )
+
         while self.last_analysed_match < self.current_match_day:
             match_day = self.last_analysed_match + 1
             for team in self.serie_a_teams:
                 # Attempt to scrape with bs4 first
-                players_info = self.scraper.get_team_performance(team, match_day)
-                # Fallback to Selenium if bs4 returns None
+                team_game = self.scraper.get_team_performance(team, match_day, season)
 
-                for player_info in players_info:
-                    match_stats = {
-                        "matchday": player_info["matchday"],
-                        "adjective_performance": player_info["adjective_performance"],
-                        "grade": player_info["grade"],
-                        "bonus_malus": player_info["bonus_malus"],
-                        "fanta_grade": player_info["fanta_grade"],
-                        "description": player_info["description"],
-                    }
-
-                    self.players_collection.update_one(
-                        {
-                            "name": player_info["name"],
-                            "role": player_info["role"],
-                            "team": player_info["team"],
-                        },
-                        {"$push": {"matchStats": match_stats}},
-                        upsert=True,
-                    )
+                self.players_collection.update_one(
+                    {"season": season, "team": team_game.pop("name")},
+                    {"$push": team_game},
+                    upsert=True,
+                )
             logger.info(
                 f"Stored match {match_day}, still {self.current_match_day - match_day} to be stored."
             )

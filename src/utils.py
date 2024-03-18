@@ -51,10 +51,16 @@ def scrape_error_handler(func):
     return wrapper
 
 
-if __name__ == "__main__":
+def validate_year_range(year_range):
+    # Regex to match the pattern YYYY-YY
+    pattern = r"(\d{4})-(\d{2})"
+    match = re.match(pattern, year_range)
+    # Does not match the pattern
+    if not match:
+        return False
 
-    @scrape_error_handler
-    def ciao():
-        return "str" + 1
+    start_year, end_year_suffix = match.groups()
+    end_year = start_year[:2] + end_year_suffix  # Construct the full end year
 
-    ciao()
+    # Check if the end year is start year + 1
+    return int(end_year) == int(start_year) + 1

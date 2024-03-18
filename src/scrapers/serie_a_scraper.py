@@ -15,7 +15,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 
-from utils import scrape_error_handler, logger
+from utils import scrape_error_handler, logger, validate_year_range
 
 # certificate to download chrome driver
 ssl._create_default_https_context = ssl._create_stdlib_context
@@ -51,7 +51,7 @@ class SerieA_Scraper:
 
     url_serie_a_gen_info = "https://www.fantacalcio.it/serie-a/classifica"
     url_players = "https://www.fantacalcio.it/serie-a/squadre"
-    past_matches_url = "https://www.fantacalcio.it/pagelle/2023-24"
+    past_matches_url = "https://www.fantacalcio.it/pagelle"
     forecast_match_url = "https://www.fantacalcio.it/probabili-formazioni-serie-a"
 
     def __init__(self, bonus_malus_table: dict):
@@ -97,9 +97,9 @@ class SerieA_Scraper:
     def get_current_match_day(self):
         return self._scrape_current_match_day(self.url_serie_a_gen_info)
 
-    def get_team_performance(self, team, match_day):
+    def get_team_performance(self, team, match_day, season):
 
-        url = f"{self.past_matches_url}/{team}/{match_day}"
+        url = f"{self.past_matches_url}/{season}/{team}/{match_day}"
         team_performance = self._scrape_players_performance(url)
         return team_performance
 
@@ -332,7 +332,25 @@ class SerieA_Scraper:
 
     @scrape_error_handler
     def _extract_player_info(self, element, source, url: str):
-        next_match_day = int(url.split("/")[-1])
+        match_day = int(url.split("/")[-1])
+
+        match_results = self.get_elements_by_css(
+            css_selector=".match.ml-auto span",
+            source=source,
+            element=element,
+            webdriver_wait=True,
+        )
+        team = url.split("/")[-2]
+
+        home_team = match_results[0].text.lower()
+        away_team = match_results[2].text.lower()
+
+        result = match_results[3].text
+        goals_home_team, goals_away_team = result.split("-")
+        goals_home_team, goals_away_team = int(goals_home_team), int(goals_away_team)
+
+        # storing information here
+        team_match_info = {}
         player_info_list = []
 
         roles = ["p", "d", "c", "a"]
@@ -345,7 +363,7 @@ class SerieA_Scraper:
                 webdriver_wait=True,
             )
             for player_tag in report:
-                team = url.split("/")[-2]
+
                 player_name_tag = self.get_elements_by_css(
                     "a.player-name", source=source, element=player_tag
                 )[0]
@@ -400,8 +418,6 @@ class SerieA_Scraper:
                     {
                         "name": player_name,
                         "role": role,
-                        "team": team,
-                        "matchday": next_match_day,
                         "adjective_performance": adjective_performance,
                         "grade": grade,
                         "fanta_grade": fanta_grade,
@@ -409,7 +425,32 @@ class SerieA_Scraper:
                         "description": description,
                     }
                 )
-        return player_info_list
+
+        if team == home_team:
+            result = (
+                "win"
+                if goals_home_team > goals_away_team
+                else "lose" if goals_home_team < goals_away_team else "tie"
+            )
+        else:
+            result = (
+                "win"
+                if goals_away_team > goals_home_team
+                else "lose" if goals_away_team < goals_home_team else "tie"
+            )
+
+        team_match_info["name"] = team
+        team_match_info["matches"] = {
+            "match_day": match_day,
+            "team_home": home_team,
+            "team_away": away_team,
+            "goal_team_home": goals_home_team,
+            "goal_team_away": goals_away_team,
+            "result": result,
+            "players": player_info_list,
+        }
+
+        return team_match_info
 
     def get_elements_by_css(
         self,
