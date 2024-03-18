@@ -510,6 +510,7 @@ class SerieA_Scraper:
                 response = requests.get(url)
                 soup = BeautifulSoup(response.text, "html.parser")
 
+            self.driver.get(url)
             return self.driver
         else:
             current_header = self.current_user_agent_index
