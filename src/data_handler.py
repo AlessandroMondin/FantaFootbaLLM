@@ -43,17 +43,19 @@ class SerieADatabaseManager:
     # This information is added to the collection within the setup method.
     def serie_a_teams(self):
         if self._serie_a_teams is None:
-            query = ({}, {"_id": 0, "serie_a_teams": 1})
+            query = {"serie_a_teams": {"$exists": True}}
+            projection = {"_id": 0, "serie_a_teams": 1}
 
-            self._serie_a_teams = self.championship_collection.find_one(*query)
+            document = self.championship_collection.find_one(query, projection)
+            if document and "serie_a_teams" in document:
+                # 'serie_a_teams' field is found, use it.
+                self._serie_a_teams = document["serie_a_teams"]
 
-            if self._serie_a_teams is None or self.serie_a_teams == {}:
+            elif self._serie_a_teams is None or self.serie_a_teams == {}:
                 self._serie_a_teams = self.scraper.get_team_names()
                 self.championship_collection.insert_one(
                     {"serie_a_teams": self._serie_a_teams}
                 )
-            else:
-                self._serie_a_teams = self._serie_a_teams["serie_a_teams"]
 
         return self._serie_a_teams
 
