@@ -1,4 +1,7 @@
 import logging
+import re
+import traceback
+
 from functools import wraps
 
 
@@ -27,20 +30,21 @@ logger = get_logger(__file__)
 
 def scrape_error_handler(func):
     """
-    A decorator used for scraping functions. It logs errors if the scraper fails.
+    A decorator used for scraping functions. It logs errors if the scraper fails, including the line number.
     """
 
-    # for debugging purposes
     @wraps(func)
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
         except Exception as e:
-            # Log the exception
+            # Extract the current traceback
+            tb = traceback.format_exc()
+            # Log the exception with traceback
             if "url" in kwargs:
-                logger.error(f"Error scraping {kwargs['url']}: {e}")
+                logger.error(f"Error scraping {kwargs['url']}: {e}\nTraceback: {tb}")
             else:
-                logger.error(f"Error in {func.__name__}: {e}")
+                logger.error(f"Error in {func.__name__}: {e}\nTraceback: {tb}")
             # Optionally, re-raise the error if you want the exception to be thrown after logging
             # raise
 
