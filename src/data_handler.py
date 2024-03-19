@@ -32,6 +32,7 @@ class SerieA_DatabaseManager:
         self._serie_a_players = None
         self._fanta_football_team = None
         self._current_season = None
+        self._posticipated_matches = None
 
     @property
     def current_match_day(self):
@@ -99,6 +100,26 @@ class SerieA_DatabaseManager:
         return self._serie_a_players
 
     @property
+    # Retrieves all the players of the championship. Either by retrieving them from
+    # the dataset or by downloading them from the web.
+    def posticipated_matches(self):
+        if self._posticipated_matches is None:
+            query = (
+                {
+                    "posticipated_matches": {"$exists": True},
+                    "season": self.current_season,
+                },
+                {"posticipated_matches": 1, "_id": 0},
+            )
+            document = self.championship_collection.find_one(*query)
+            if document is None:
+                self._posticipated_matches = []
+            else:
+                self._posticipated_matches = document["posticipated_matches"]
+
+        return self._posticipated_matches
+
+    @property
     # Retrieves from mongodb the lastest analysed match day.
     def last_analysed_match(self):
         if self._last_analysed_match is None:
@@ -132,7 +153,10 @@ class SerieA_DatabaseManager:
         self._last_analysed_match = new_val
         # Optionally update the database to reflect this new value
         update_query = {"$set": {"last_analysed_match_day": new_val}}
-        find_query = {"serie_a_players": {"$exists": True}, "season": self.current_season}
+        find_query = {
+            "last_analysed_match_day": {"$exists": True},
+            "season": self.current_season,
+        }
         self.championship_collection.update_one(find_query, update_query)
 
     def setup_mongo(self):
@@ -166,11 +190,37 @@ class SerieA_DatabaseManager:
                 f"The value of the argument `season` must be like: '2023-24'. Got value {season}"
             )
 
+        for match in self.posticipated_matches:
+            team, match_day, season = match
+            team_game = self.scraper.get_team_performance(team, match_day, season)
+            if team_game is None:
+                continue
+
+            self.players_collection.update_one(
+                {"season": season, "team": team_game.pop("name")},
+                {
+                    "$push": {
+                        "matches": {  
+                            "$each": [team_game["matches"]],
+                            # because of 0 indexing
+                            "$position": match_day - 1,
+                        }
+                    }
+                },
+                upsert=True,
+            )
+
+            self.remove_missing_match(match)
+
         while self.last_analysed_match < self.current_match_day:
             match_day = self.last_analysed_match + 1
             for team in self.serie_a_teams:
                 # Attempt to scrape with bs4 first
                 team_game = self.scraper.get_team_performance(team, match_day, season)
+
+                if team_game is None:
+                    self.add_missing_match([team, match_day, season])
+                    continue
 
                 self.players_collection.update_one(
                     {"season": season, "team": team_game.pop("name")},
@@ -196,6 +246,22 @@ class SerieA_DatabaseManager:
                 "current_match_day": self.current_match_day,
                 "competitions": competition_data,
             }
+        )
+
+    def add_missing_match(self, match_details):
+
+        # Update the database
+        self.championship_collection.update_one(
+            {"season": self.current_season, "posticipated_matches": {"$exists": True}},
+            {"$push": {"posticipated_matches": match_details}},
+            upsert=True,
+        )
+
+    def remove_missing_match(self, match_details):
+        # Remove the match from the database
+        self.championship_collection.update_one(
+            {"season": self.current_season, "posticipated_matches": {"$exists": True}},
+            {"$pull": {"posticipated_matches": match_details}}
         )
 
 
