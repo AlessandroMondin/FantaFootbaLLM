@@ -97,6 +97,11 @@ class SerieA_Scraper:
     def get_current_match_day(self):
         return self._scrape_current_match_day(self.url_serie_a_gen_info)
 
+    def get_current_season(self):
+        response = requests.get(self.past_matches_url)
+        soup = BeautifulSoup(response.text, "html.parser")
+        return soup.select_one('select[name="season"] option')["value"]
+
     def get_team_performance(self, team, match_day, season):
 
         url = f"{self.past_matches_url}/{season}/{team}/{match_day}"
@@ -206,6 +211,18 @@ class SerieA_Scraper:
             team_players.append({"name": name, "role": role, "team": team})
 
         return team_players
+
+    def get_player_names(self):
+        """
+        Downloads all the SerieA players from the WEB and stores them in MongoDB.
+        """
+        players = []
+        for team in self.serie_a_teams:
+            url = f"{self.url_players}/{team}"
+            team_players = self._scrape_players_by_team(url=url)
+            players += team_players
+
+        self.championship_collection.insert_one({"serie_a_players": players})
 
     def get_player_names(self):
         """
@@ -537,9 +554,7 @@ class SerieA_Scraper:
                 if self.driver is not None:
                     self.close_driver()  # Close the existing driver if it exists
                 self.setup_selenium_driver()  # Setup a new driver
-                self.request_count = (
-                    0  # Reset request count after refreshing the driver
-                )
+                self.request_count = 0  # Reset request count after refreshing the driver
 
             self.driver.get(url)
             soup = BeautifulSoup(self.driver.page_source, "html.parser")
