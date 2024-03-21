@@ -2,10 +2,8 @@ import ast
 import os
 from typing import List, Tuple
 
-import gradio as gr
 from dotenv import load_dotenv
 from fuzzywuzzy import process
-from langchain_core.language_models.chat_models import BaseChatModel
 from langchain.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain.schema import AIMessage, HumanMessage
@@ -22,7 +20,8 @@ from prompts import (
     style_very_concise,
     queries_prompt,
 )
-from data_handler import SerieADatabaseManager
+from data_handler import SerieA_DatabaseManager
+from scrapers.serie_a_scraper import SerieA_Scraper
 from utils import logger
 
 dotenv_path = os.path.join(os.path.dirname(__file__), "..", ".env")
@@ -54,9 +53,9 @@ class LLMInterface:
     #  vs players present in the database
     fuzzy_threshold = 80
 
-    def __init__(self, max_message_history: int = 4) -> None:
+    def __init__(self, data_manager=None, max_message_history: int = 4) -> None:
         self.max_message_history = max_message_history
-        self.data_manager = SerieADatabaseManager()
+        self.data_manager = data_manager
 
         self.light_llm_analyst = gpt3_analyst
         self.heavy_llm_analyst = gpt3_analyst
@@ -71,73 +70,72 @@ class LLMInterface:
         self.history = []
 
     def chat_debug(self, message, history=""):
-        if self.team_is_created is False:
+
+        prompt = self.prepare_prompt(prompt_template=label_user_message, message=message)
+        prompt = self.langchain_format(prompt, self.history[-2:])
+        out = self.light_llm_analyst.invoke(prompt).content
+        category, eng_message = eval(out)
+
+        if category == "info":
+            prompt = self.prepare_prompt(prompt_template=info_prompt, message=message)
+            prompt = self.langchain_format(prompt, self.history[-2:])
+            response = self.light_llm_analyst.invoke(prompt).content
+            return response
+        elif category == "suggestion":
+            pass
+            # if self.team_is_created is False:
+            #     prompt = self.prepare_prompt(
+            #         message_is_listing_players_prompt, chat_history=message
+            #     )
+            #     prompt = self.langchain_format(prompt)
+            #     user_players = self.light_llm_analyst.invoke(prompt).content
+
+            #     if eval(user_players) != []:
+            #         identified_players, non_identified_players = self.get_players(
+            #             potential_players=user_players
+            #         )
+            #         _ = self.add_players(identified_players)
+            #         self.team_is_created = True
+
+            #         prompt = self.prepare_prompt(
+            #             team_added_prompt,
+            #             non_identified_players=non_identified_players,
+            #             style=style_very_concise,
+            #         )
+            #         prompt = self.langchain_format(prompt, self.history)
+            #         response = self.heavy_llm_chat.invoke(prompt).content
+            #         return response
+
+            #     else:
+            #         prompt = self.prepare_prompt(
+            #             no_players_in_the_message,
+            #             message=message,
+            #             style=style_concise,
+            #         )
+            #         prompt = self.langchain_format(prompt, self.history)
+            #         response = self.light_llm_chat.invoke(prompt).content
+            #         self.history.append([message, response])
+            #         return response
+
+        elif category == "research":
             prompt = self.prepare_prompt(
-                message_is_listing_players_prompt, chat_history=message
-            )
-            prompt = self.langchain_format(prompt)
-            user_players = self.light_llm_analyst.invoke(prompt).content
-
-            if eval(user_players) != []:
-                identified_players, non_identified_players = self.get_players(
-                    potential_players=user_players
-                )
-                _ = self.add_players(identified_players)
-                self.team_is_created = True
-
-                prompt = self.prepare_prompt(
-                    team_added_prompt,
-                    non_identified_players=non_identified_players,
-                    style=style_very_concise,
-                )
-                prompt = self.langchain_format(prompt, self.history)
-                response = self.heavy_llm_chat.invoke(prompt).content
-                return response
-
-            else:
-                prompt = self.prepare_prompt(
-                    no_players_in_the_message,
-                    message=message,
-                    style=style_concise,
-                )
-                prompt = self.langchain_format(prompt, self.history)
-                response = self.light_llm_chat.invoke(prompt).content
-                self.history.append([message, response])
-                return response
-        else:
-            prompt = self.prepare_prompt(
-                prompt_template=label_user_message, message=message
+                prompt_template=queries_prompt,
+                message=message,
+                history=self.history[-1:],
             )
             prompt = self.langchain_format(prompt, self.history[-2:])
-            category = self.light_llm_analyst.invoke(prompt).content
+            query = self.heavy_llm_analyst.invoke(prompt).content
+            out = list(self.multiline_eval(query))
+            self.history.append([message, query])
+            return [out, query]
 
-            if category == "info":
-                prompt = self.prepare_prompt(prompt_template=info_prompt, message=message)
-                prompt = self.langchain_format(prompt, self.history[-2:])
-                response = self.light_llm_analyst.invoke(prompt).content
-                return response
-            elif category == "suggestion":
-                pass
+        elif category == "team_management":
+            pass
 
-            elif category == "research":
-                prompt = self.prepare_prompt(
-                    prompt_template=queries_prompt,
-                    message=message,
-                    history=self.history[-1:],
-                )
-                prompt = self.langchain_format(prompt, self.history[-2:])
-                query = self.heavy_llm_analyst.invoke(prompt).content
-                out = list(self.multiline_eval(query))
-                self.history.append([message, query])
-                return [out, query]
+        else:
+            pass
 
-            elif category == "team_management":
-                pass
-
-            else:
-                pass
-
-            # TODO: Further integration with prepare_prompt as needed for other functionalities.
+        # TODO: Further integration with prepare_prompt as needed for other functionalities.
 
     def multiline_eval(self, expr):
         "Evaluate several lines of input, returning the result of the last line"
@@ -240,7 +238,14 @@ class LLMInterface:
 #     # ).launch()
 
 if __name__ == "__main__":
-    smart_llm = LLMInterface()
+    import yaml
+
+    # Load the YAML file
+    with open("src/bonus_malus.yaml", "r") as file:
+        bonus_malus_table = yaml.safe_load(file)["bonus_malus_table"]
+    scraper = SerieA_Scraper(bonus_malus_table=bonus_malus_table)
+    data_manager = SerieA_DatabaseManager(scraper=scraper)
+    smart_llm = LLMInterface(data_manager=data_manager)
     print("Welcome to the LLM Chat Interface. Type 'quit' to exit.")
 
     while True:
