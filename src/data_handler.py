@@ -35,9 +35,27 @@ class SerieA_DatabaseManager:
         self._posticipated_matches = None
 
     @property
+    # Used to retrieve the fantafootball team of a given user.
+    def fanta_football_team(self):
+        if self._fanta_football_team is None:
+            query = (
+                {"user_players": {"$exists": True}},
+                {"user_players": 1, "_id": 0},
+            )
+            self._fanta_football_team = self.championship_collection.find_one(*query)
+
+        return self._fanta_football_team
+
+    @property
     def current_match_day(self):
         if self._current_match_day is None:
             self._current_match_day = self.scraper.get_current_match_day()
+            self.championship_collection.update_one(
+                {"current_match_day": {"$exists": True}, "season": self.current_season},
+                {"$set": {"current_match_day": self._current_match_day}},
+                upsert=True
+            )
+
         return self._current_match_day
 
     @property
@@ -200,7 +218,7 @@ class SerieA_DatabaseManager:
                 {"season": season, "team": team_game.pop("name")},
                 {
                     "$push": {
-                        "matches": {  
+                        "matches": {
                             "$each": [team_game["matches"]],
                             # because of 0 indexing
                             "$position": match_day - 1,
@@ -261,7 +279,7 @@ class SerieA_DatabaseManager:
         # Remove the match from the database
         self.championship_collection.update_one(
             {"season": self.current_season, "posticipated_matches": {"$exists": True}},
-            {"$pull": {"posticipated_matches": match_details}}
+            {"$pull": {"posticipated_matches": match_details}},
         )
 
 
