@@ -15,7 +15,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 
-from utils import scrape_error_handler, logger, validate_year_range
+from utils import scrape_error_handler, logger
 
 # certificate to download chrome driver
 ssl._create_default_https_context = ssl._create_stdlib_context
@@ -81,18 +81,6 @@ class SerieA_Scraper:
                 self.retrieve_players()
                 self._serie_a_players = self.championship_collection.find_one(*query)
         return self._serie_a_players
-
-    @property
-    # Used to retrieve the fantafootball team of a given user.
-    def fanta_football_team(self):
-        if self._fanta_football_team is None:
-            query = (
-                {"user_players": {"$exists": True}},
-                {"user_players": 1, "_id": 0},
-            )
-            self._fanta_football_team = self.championship_collection.find_one(*query)
-
-        return self._fanta_football_team
 
     def get_current_match_day(self):
         return self._scrape_current_match_day(self.url_serie_a_gen_info)
