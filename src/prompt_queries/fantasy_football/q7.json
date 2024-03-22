@@ -1,0 +1,91 @@
+{
+    "question": "Which are the players of the teams sassuolo, cagliari and hellas-verona with a fantasy average greater than 7.2?",
+    "query": [
+        {
+          "$unwind": "$matches"
+        },
+        {
+          "$unwind": "$matches.players"
+        },
+        {
+          "$group": {
+            "_id": {
+              "name": "$matches.players.name",
+              "team": "$team"
+            },
+            "averageGrade": {
+              "$avg": "$matches.players.fanta_grade"
+            },
+            "games_played": {
+              "$sum": 1
+            }
+          }
+        },
+        {
+          "$group": {
+            "_id": "$_id.name",
+            "teams": {
+              "$push": "$_id.team"
+            },
+            "average_per_team": {
+              "$push": {
+                "team": "$_id.team",
+                "grade": "$averageGrade",
+                "games": "$games_played"
+              }
+            },
+            "averageGrades": {
+              "$avg": "$averageGrade"
+            },
+            "totalGames": {
+              "$sum": "$games_played"
+            }
+          }
+        },
+        {
+          "$match": {
+            "averageGrades": {
+              "$gt": 7
+            },
+            "$expr": {
+              "$gt": [
+                {
+                  "$size": {
+                    "$setIntersection": [
+                      "$teams",
+                      [
+                        "cagliari",
+                        "atalanta",
+                        "hellas-verona"
+                      ]
+                    ]
+                  }
+                },
+                0
+              ]
+            }
+          }
+        },
+        {
+          "$project": {
+            "teams": 1,
+            "averageGrades": 1,
+            "totalGames": 1,
+            "average_per_team": {
+              "$cond": {
+                "if": {
+                  "$lt": [
+                    {
+                      "$size": "$teams"
+                    },
+                    2
+                  ]
+                },
+                "then": "$$REMOVE",
+                "else": "$average_per_team"
+              }
+            }
+          }
+        }
+      ]      
+}

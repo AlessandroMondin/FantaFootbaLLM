@@ -1,0 +1,83 @@
+{
+    "question": "Which are the midfielders of the teams sassuolo, cagliari and salernitana that took have the best average when playing juventus and inter?",
+    "query": [
+      {
+        "$match": {
+          "team": {"$in": ["sassuolo", "cagliari", "salernitana"]},
+          "season": "2023-24"
+        }
+      },
+      {
+        "$unwind": "$matches"
+      },
+      {
+        "$match": {
+          "$or": [
+            {"matches.team_home": {"$in": ["juventus", "inter"]}},
+            {"matches.team_away": {"$in": ["juventus", "inter"]}}
+          ]
+        }
+      },
+      {
+        "$unwind": "$matches.players"
+      },
+      {
+        "$match": {
+          "matches.players.role": "c"
+        }
+      },
+      {
+        "$group": {
+          "_id": {
+            "team": "$team",
+            "name": "$matches.players.name"
+          },
+          "averageGrade": {"$avg": "$matches.players.grade"},
+          "matchesPlayed": {"$sum": 1}
+        }
+      },
+      {
+        "$sort": {
+          "_id.team": 1,
+          "averageGrade": -1
+        }
+      },
+      {
+        "$facet": {
+          "sassuolo": [
+            {"$match": {"_id.team": "sassuolo"}},
+            {"$limit": 1},
+            {
+              "$project": {
+                "_id": 0,
+                "midfielder": "$_id.name",
+                "averageGrade": "$averageGrade"
+              }
+            }
+          ],
+          "cagliari": [
+            {"$match": {"_id.team": "cagliari"}},
+            {"$limit": 1},
+            {
+              "$project": {
+                "_id": 0,
+                "midfielder": "$_id.name",
+                "averageGrade": "$averageGrade"
+              }
+            }
+          ],
+          "salernitana": [
+            {"$match": {"_id.team": "salernitana"}},
+            {"$limit": 1},
+            {
+              "$project": {
+                "_id": 0,
+                "midfielder": "$_id.name",
+                "averageGrade": "$averageGrade"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }

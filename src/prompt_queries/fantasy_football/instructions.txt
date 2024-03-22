@@ -1,0 +1,304 @@
+In order to create queries:
+
+1) Open MongoDB atlas
+2) Copy document in json format
+3) Paste to GPT4. The message/prompt looks like the following:
+
+Based on a MONGODB document collection like: {
+    "_id": {
+      "$oid": "65f97ddbab06d5603151f7e2"
+    },
+    "season": "2023-24",
+    "team": "milan",
+    "matches": [
+      {
+        "match_day": 1,
+        "team_home": "bologna",
+        "team_away": "milan",
+        "goal_team_home": 0,
+        "goal_team_away": 2,
+        "result": "win",
+        "players": [
+          {
+            "name": "maignan",
+            "role": "p",
+            "adjective_performance": "Attento",
+            "grade": 6,
+            "fanta_grade": 6,
+            "bonus_malus": [],
+            "description": "Nessun intervento da Magic Mike, ma è sempre ben posizionato rendendo facili un paio di parate. Come quella su Aebischer a metà ripresa."
+          },
+          {
+            "name": "calabria",
+            "role": "d",
+            "adjective_performance": "Sufficiente",
+            "grade": 6,
+            "fanta_grade": 6,
+            "bonus_malus": [],
+            "description": "Spinge poco, ma spesso si propone in mezzo al campo per l'uscita dal basso. Partita onesta, senza grandi acuti nè particolari errori."
+          },
+          {
+            "name": "hernandez-t",
+            "role": "d",
+            "adjective_performance": "Sporadico",
+            "grade": 6,
+            "fanta_grade": 5.5,
+            "bonus_malus": [
+              {
+                "title": "Ammonizione",
+                "value": 1
+              }
+            ],
+            "description": "Due-tre squilli dei suoi per spaccare il Bologna in ripartenza. Anche se Ndoye gli crea qualche grattacapo. Cala di ritmo nel finale."
+          },
+          {
+            "name": "tomori",
+            "role": "d",
+            "adjective_performance": "dignitoso",
+            "grade": 6,
+            "fanta_grade": 6,
+            "bonus_malus": [],
+            "description": "Brutta palla persa in chiusura di primo tempo, per sua fortuna senza conseguenze. Per il resto una prestazione dignitosa."
+          },
+          {
+            "name": "kalulu",
+            "role": "d",
+            "adjective_performance": "Compitino",
+            "grade": 6,
+            "fanta_grade": 6,
+            "bonus_malus": [],
+            "description": "Piccola leggerezza su Ndoye, ma per sua fortuna il Milan se la cava. Per il resto normale amministrazione."
+          },
+          {
+            "name": "thiaw",
+            "role": "d",
+            "adjective_performance": "Efficace",
+            "grade": 6,
+            "fanta_grade": 6,
+            "bonus_malus": [],
+            "description": "Gioca pulito, rischiando poco. Prezioso nel gioco aereo, una prestazione senza particolari sbavature."
+          },
+          {
+            "name": "krunic",
+            "role": "c",
+            "adjective_performance": "Scolastico",
+            "grade": 6,
+            "fanta_grade": 5.5,
+            "bonus_malus": [
+              {
+                "title": "Ammonizione",
+                "value": 1
+              }
+            ],
+            "description": "Come nel precampionato, Pioli lo propone in regia. Si limita al giro palla semplice, senza rubare l'occhio. Ma a parte un pallone perso malamente, non demerita."
+          },
+          {
+            "name": "pulisic",
+            "role": "c",
+            "adjective_performance": "Tornado",
+            "grade": 7.5,
+            "fanta_grade": 10.5,
+            "bonus_malus": [
+              {
+                "title": "Gol segnati",
+                "value": 1
+              }
+            ],
+            "description": "Impatto travolgente al campionato italiano. Bello spunto ad avviare l'azione dello 0-1, giocata super per il gol dello 0-2."
+          },
+          {
+            "name": "loftus-cheek",
+            "role": "c",
+            "adjective_performance": "Ruvido",
+            "grade": 6,
+            "fanta_grade": 6,
+            "bonus_malus": [],
+            "description": "Dà quantità al centrocampo, ma è (ancora) poco partecipe all'impostazione. Si nota solo per un'azione di forza sulla fascia, in cui è sfortunato nel rimpallo finale."
+          },
+          {
+            "name": "chukwueze",
+            "role": "c",
+            "adjective_performance": "Assaggiato",
+            "grade": 6,
+            "fanta_grade": 6,
+            "bonus_malus": [],
+            "description": "Primo scorcio in Serie A, quando la partita si stava spegnendo. Prova a far assaggiare il suo tocco di palla, da rivedere prossimamente."
+          },
+          {
+            "name": "pobega",
+            "role": "c",
+            "adjective_performance": "Apparso",
+            "grade": 6,
+            "fanta_grade": 6,
+            "bonus_malus": [],
+            "description": "Scorcio finale di partita, quando i ritmi sono ormai blandi."
+          },
+          {
+            "name": "reijnders",
+            "role": "c",
+            "adjective_performance": "Potenziale",
+            "grade": 6.5,
+            "fanta_grade": 7.5,
+            "bonus_malus": [
+              {
+                "title": "Assist",
+                "value": 1
+              }
+            ],
+            "description": "Subito un assist, con il merito di tener vivo un pallone non semplice. Poi sprazzi delle sue qualità, sia in copertura che in ripartenza."
+          },
+          {
+            "name": "giroud",
+            "role": "a",
+            "adjective_performance": "Decisivo",
+            "grade": 7.5,
+            "fanta_grade": 11.5,
+            "bonus_malus": [
+              {
+                "title": "Gol segnati",
+                "value": 1
+              },
+              {
+                "title": "Assist",
+                "value": 1
+              }
+            ],
+            "description": "Inizia col piglio giusto. Sua la zampata che sblocca la partita, suo l'assist per il raddoppio di Pulisic. Sfiora anche la doppietta con un gran tiro al volo. Nella ripresa si vede poco, ma gli si può perdonare."
+          },
+          {
+            "name": "rafael-leao",
+            "role": "a",
+            "adjective_performance": "Alternato",
+            "grade": 6.5,
+            "fanta_grade": 6.5,
+            "bonus_malus": [],
+            "description": "Per una volta è un attore non protagonista. Non partecipa ai due gol del Milan e rimane spesso con la giocata in canna. Si nota semmai per un paio di ripiegamenti difensivi. Nel finale l'unico vero squillo, con dribling ubriacante e tiro che finisce sul palo."
+          },
+          {
+            "name": "okafor",
+            "role": "a",
+            "adjective_performance": "Intravisto",
+            "grade": 6,
+            "fanta_grade": 6,
+            "bonus_malus": [],
+            "description": "Come per Chukwueze, anche per lui è difficile esprimere un giudizio sullo scorcio di partita di stasera. Solo un primo assaggio di calcio italiano, quando la partita era ormai quasi finita."
+          }
+        ]
+      },
+      {
+        "match_day": 2,
+        "team_home": "milan",
+        "team_away": "torino",
+        "goal_team_home": 4,
+        "goal_team_away": 1,
+        "result": "win",
+        "players": [
+          {
+            "name": "maignan",
+            "role": "p",
+            "adjective_performance": "Tranquillo",
+            "grade": 6,
+            "fanta_grade": 5,
+            "bonus_malus": [
+              {
+                "title": "Gol subiti",
+                "value": 1
+              }
+            ],
+            "description": "Uscite pulite. Sul gol di Schuurs non può nulla. Per il resto ordinaria amministrazione."
+          },
+          {
+            "name": "chukwueze",
+            "role": "c",
+            "adjective_performance": "Risolutore",
+            "grade": 7,
+            "fanta_grade": 10,
+            "bonus_malus": [
+              {
+                "title": "Gol segnati",
+                "value": 1
+              }
+            ],
+            "description": "Il primo gol in Serie A non si scorda mai, specie se è un gran tiro da fuori area che chiude una partita che si stava facendo complicata."
+          },
+          {
+            "name": "musah",
+            "role": "c",
+            "adjective_performance": "Solido",
+            "grade": 6,
+            "fanta_grade": 6,
+            "bonus_malus": [],
+            "description": "Serve dare energia fresca e sostanza in mezzo al campo, Pioli si affida a lui che risponde presente e dà un contributo sensibile."
+          },
+          {
+            "name": "reijnders",
+            "role": "c",
+            "adjective_performance": "Lodevole",
+            "grade": 6.5,
+            "fanta_grade": 6,
+            "bonus_malus": [
+              {
+                "title": "Ammonizione",
+                "value": 1
+              }
+            ],
+            "description": "Come Bennacer va in calo nel secondo tempo ma a differenza dell'algerino porta in dote una prima frazione più propositiva e uno spirito più battagliero quando il Milan va in difficoltà."
+          },
+          {
+            "name": "giroud",
+            "role": "a",
+            "adjective_performance": "Appiglio",
+            "grade": 6,
+            "fanta_grade": 6,
+            "bonus_malus": [],
+            "description": "Fa respirare la squadra tenendo il pallone e dandole il tempo di rifiatare nei momenti di maggiore difficoltà."
+          },
+          {
+            "name": "rafael-leao",
+            "role": "a",
+            "adjective_performance": "Impreciso",
+            "grade": 5.5,
+            "fanta_grade": 5.5,
+            "bonus_malus": [],
+            "description": "Le sue accelerazioni fanno male alla difesa del Verona, per informazioni chiedere a Centonze. Il problema è che spesso gli manca qualità nell'ultimo passaggio e soprattutto spreca malamente un pallone a tu per tu con Montipò."
+          },
+          {
+            "name": "okafor",
+            "role": "a",
+            "adjective_performance": "Volenteroso",
+            "grade": 6.5,
+            "fanta_grade": 6.5,
+            "bonus_malus": [],
+            "description": "Nel primo tempo Montipò gli dice di no con un gran intervento, poi un paio di volte non inquadra lo specchio della porta. Nella ripresa entra da protagonista nell'azione dello 0-2 di Pulisic."
+          }
+        ]
+      }
+    ]
+  } ... which in pymongo is accessed with self.players_collection .. what you need to do is tell me the query to reply to the question I am going to ask you in the end of this message: see this example: {
+    "question": "how many goals has chukwueze scored this year?",
+    "query": [
+        {"$match": {"season": "2023-24", "matches.players.name": "chukwueze"}},
+        {"$unwind": "$matches"},
+        {"$unwind": "$matches.players"},
+        {"$match": {"matches.players.name": "chukwueze"}},
+        {"$group": {
+            "_id": "$matches.players.name",
+            "total_goals": {
+                "$sum": {
+                    "$reduce": {
+                        "input": "$matches.players.bonus_malus",
+                        "initialValue": 0,
+                        "in": {
+                            "$cond": [
+                                {"$eq": ["$$this.title", "Gol segnati"]},
+                                {"$add": ["$$value", "$$this.value"]},
+                                "$$value"
+                            ]
+                        }
+                    }
+                }
+            }
+        }}
+    ]
+  }
+   ...  question: "Which is the fanta grade difference of leao when he's playing home or playing away?"

@@ -1,0 +1,34 @@
+{
+    "question": "Among rafael-leao, jankto and barella, which is the player with the best fantasy average when their team loses the game?",
+    "query": [
+        {
+          "$match": {
+            "season": "2023-24"
+          }
+        },
+        {
+          "$unwind": "$matches"
+        },
+        {
+          "$unwind": "$matches.players"
+        },
+        {
+          "$match": {
+            "matches.players.name": {"$in": ["rafael-leao", "jankto", "barella"]},
+            "matches.result": "lose"
+          }
+        },
+        {
+          "$group": {
+            "_id": "$matches.players.name",
+            "averageFantaGrade": {"$avg": "$matches.players.fanta_grade"}
+          }
+        },
+        {
+          "$sort": {"averageFantaGrade": -1}
+        },
+        {
+          "$limit": 1
+        }
+      ]
+  }

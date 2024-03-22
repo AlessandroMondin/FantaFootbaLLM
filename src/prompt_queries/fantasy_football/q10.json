@@ -1,0 +1,100 @@
+{
+    "question": "Which are the top 3 penalty strickers that scored most of the penalties that they shot?",
+    "query": [
+        {
+          "$unwind": "$matches"
+        },
+        {
+          "$unwind": "$matches.players"
+        },
+        {
+          "$unwind": "$matches.players.bonus_malus"
+        },
+        {
+          "$match": {
+            "$or": [
+              {
+                "matches.players.bonus_malus.title": "Rigori segnati"
+              },
+              {
+                "matches.players.bonus_malus.title": "Rigori sbagliati"
+              }
+            ]
+          }
+        },
+        {
+          "$group": {
+            "_id": {"name": "$matches.players.name",
+                    "team": "$team"},
+            "penaltiesScored": {
+              "$sum": {
+                "$cond": [
+                  {
+                    "$eq": [
+                      "$matches.players.bonus_malus.title",
+                      "Rigori segnati"
+                    ]
+                  },
+                  "$matches.players.bonus_malus.value",
+                  0
+                ]
+              }
+            },
+            "penaltiesMissed": {
+              "$sum": {
+                "$cond": [
+                  {
+                    "$eq": [
+                      "$matches.players.bonus_malus.title",
+                      "Rigori sbagliati"
+                    ]
+                  },
+                  "$matches.players.bonus_malus.value",
+                  0
+                ]
+              }
+            }
+          }
+        },
+        {
+          "$project": {
+            "penaltiesScored": 1,
+            "penaltiesMissed": 1,
+            "penaltiesKicked": {
+              "$sum": [
+                "$penaltiesScored",
+                "$penaltiesMissed"
+              ]
+            }
+          }
+        },
+        {
+          "$match": {
+            "penaltiesKicked": {
+              "$gt": 0
+            }
+          }
+        },
+        {
+          "$project": {
+            "penaltiesScored": 1,
+            "penaltiesKicked": 1,
+            "successRate": {
+              "$divide": [
+                "$penaltiesScored",
+                "$penaltiesKicked"
+              ]
+            }
+          }
+        },
+        {
+          "$sort": {
+            "successRate": -1,
+            "penaltiesScored": -1
+          }
+        },
+        {
+          "$limit": 5
+        }
+      ]
+}

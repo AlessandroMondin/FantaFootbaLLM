@@ -1,0 +1,39 @@
+{
+    "question": "Which is the fanta grade difference of rafael-leao when he's playing home or playing away?",
+    "query": [
+        {"$unwind": "$matches"},
+        {"$unwind": "$matches.players"},
+        {"$match": {"season": "2023-24", "matches.players.name": "rafael-leao"}},
+        {"$project": {
+            "team": 1,
+            "isHomeGame": {"$eq": ["$team", "$matches.team_home"]},
+            "fantaGrade": "$matches.players.fanta_grade"
+        }},
+        {"$group": {
+            "_id": {
+                "team": "$team",
+                "isHomeGame": "$isHomeGame"
+            },
+            "averageFantaGrade": {"$avg": "$fantaGrade"}
+        }},
+        {"$group": {
+            "_id": "$_id.team",
+            "homeAverage": {
+                "$max": {
+                    "$cond": ["$_id.isHomeGame", "$averageFantaGrade", 0]
+                }
+            },
+            "awayAverage": {
+                "$max": {
+                    "$cond": [{"$not": "$_id.isHomeGame"}, "$averageFantaGrade", 0]
+                }
+            }
+        }},
+        {"$project": {
+            "_id": 0,
+            "homeAverage": 1,
+            "awayAverage": 1,
+            "difference": {"$subtract": ["$homeAverage", "$awayAverage"]}
+        }}
+      ]      
+}

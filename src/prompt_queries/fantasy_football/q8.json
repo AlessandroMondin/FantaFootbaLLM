@@ -1,0 +1,83 @@
+{
+    "question": "Which are the players of the teams juventus, lecce and genoa with a average grade greater than 6.2 and with more than 20 games playerd?",
+    "query": [
+        {
+          "$match": {
+            "team": {
+              "$in": ["juventus", "lecce", "genoa"]
+            }
+          }
+        },
+        {
+          "$unwind": "$matches"
+        },
+        {
+          "$unwind": "$matches.players"
+        },
+        {
+          "$group": {
+            "_id": {
+              "name": "$matches.players.name",
+              "team": "$team"
+            },
+            "averageGrade": {
+              "$avg": "$matches.players.grade"
+            },
+            "games_played": {
+              "$sum": 1
+            }
+          }
+        },
+        {
+          "$group": {
+            "_id": "$_id.name",
+            "teams": {
+              "$push": "$_id.team"
+            },
+            "average_per_team": {
+              "$push": {
+                "team": "$_id.team",
+                "grade": "$averageGrade",
+                "games": "$games_played"
+              }
+            },
+            "averageGrades": {
+              "$avg": "$averageGrade"
+            },
+            "totalGames": {
+              "$sum": "$games_played"
+            }
+          }
+        },
+        {
+          "$match": {
+            "averageGrades": {
+              "$gt": 6.2
+            },
+            "totalGames": {
+              "$gt": 20
+            }
+          }
+        },
+        {
+          "$project": {
+            "teams": 1,
+            "averageGrades": 1,
+            "totalGames": 1,
+            "average_per_team": {
+              "$cond": {
+                "if": {
+                  "$lt": [
+                    { "$size": "$teams" },
+                    2
+                  ]
+                },
+                "then": "$$REMOVE",
+                "else": "$average_per_team"
+              }
+            }
+          }
+        }
+      ]
+      
+}

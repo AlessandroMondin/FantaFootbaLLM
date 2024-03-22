@@ -1,0 +1,104 @@
+{
+    "question": "Which are the starting defenders of bologna, milan and inter with the best average grade?",
+    "query": [
+      {
+        "$match": {
+          "team": {"$in": ["bologna", "milan", "inter"]},
+          "season": "2023-24"
+        }
+      },
+      {
+        "$unwind": "$matches"
+      },
+      {
+        "$unwind": "$matches.players"
+      },
+      {
+        "$match": {
+          "matches.players.role": "d"
+        }
+      },
+      {
+        "$group": {
+          "_id": {
+            "team": "$team",
+            "name": "$matches.players.name"
+          },
+          "averageGrade": {"$avg": "$matches.players.grade"},
+          "matchesPlayed": {"$sum": 1}
+        }
+      },
+      {
+        "$lookup": {
+          "from": "user_serie_a_info",
+          "pipeline": [
+            {"$match": {"current_match_day": {"$exists": true}}},
+            {"$sort": {"season": -1, "current_match_day": -1}},
+            {"$limit": 1}
+          ],
+          "as": "season_info"
+        }
+      },
+      {
+        "$unwind": "$season_info"
+      },
+      {
+        "$addFields": {
+          "current_match_day": "$season_info.current_match_day"
+        }
+      },
+      {
+        "$match": {
+          "$expr": {
+            "$gte": [
+              "$matchesPlayed",
+              {"$multiply": ["$current_match_day", 0.7]}
+            ]
+          }
+        }
+      },
+      {
+        "$sort": {
+          "_id.team": 1,
+          "averageGrade": -1
+        }
+      },
+      {
+        "$facet": {
+          "bologna": [
+            {"$match": {"_id.team": "bologna"}},
+            {"$limit": 1},
+            {
+              "$project": {
+                "_id": 0,
+                "defender": "$_id.name",
+                "averageGrade": "$averageGrade"
+              }
+            }
+          ],
+          "milan": [
+            {"$match": {"_id.team": "milan"}},
+            {"$limit": 1},
+            {
+              "$project": {
+                "_id": 0,
+                "defender": "$_id.name",
+                "averageGrade": "$averageGrade"
+              }
+            }
+          ],
+          "inter": [
+            {"$match": {"_id.team": "inter"}},
+            {"$limit": 1},
+            {
+              "$project": {
+                "_id": 0,
+                "defender": "$_id.name",
+                "averageGrade": "$averageGrade"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }

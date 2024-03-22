@@ -1,0 +1,184 @@
+{
+    "question": "Which is the player who took more yellow cards and who is the player who took the least among starting players?",
+    "query": [
+        {
+            "$unwind": {
+                "path": "$matches"
+            }
+        },
+        {
+            "$unwind": {
+                "path": "$matches.players"
+            }
+        },
+        {
+            "$group": {
+                "_id": {
+                    "name": "$matches.players.name",
+                    "team": "$team",
+                    "role": "$matches.players.role"
+                },
+                "totalYellowCards": {
+                    "$sum": {
+                        "$reduce": {
+                            "input": "$matches.players.bonus_malus",
+                            "initialValue": 0,
+                            "in": {
+                                "$cond": [
+                                    {
+                                        "$eq": [
+                                            "$$this.title", "Ammonizione"
+                                        ]
+                                    },
+                                    {
+                                        "$add": [
+                                            "$$value", "$$this.value"
+                                        ]
+                                    },
+                                    "$$value"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "matchesPlayed": {
+                    "$sum": 1
+                }
+            }
+        },
+        {
+            "$lookup": {
+                "from": "user_serie_a_info",
+                "pipeline": [
+                    {
+                        "$match": {
+                            "season": "2023/24",
+                            "current_match_day": {
+                                "$exists": true
+                            }
+                        }
+                    },
+                    {
+                        "$project": {
+                            "current_match_day": 1,
+                            "_id": 0
+                        }
+                    },
+                    {
+                        "$limit": 1
+                    }
+                ],
+                "as": "season_info"
+            }
+        },
+        {
+            "$unwind": {
+                "path": "$season_info"
+            }
+        },
+        {
+            "$addFields": {
+                "current_match_day": "$season_info.current_match_day",
+                "percentage_games_played": 0.7
+            }
+        },
+        {
+            "$match": {
+                "$expr": {
+                    "$gte": [
+                        "$matchesPlayed", {
+                            "$multiply": [
+                                "$current_match_day", "$percentage_games_played"
+                            ]
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "$sort": {
+                "totalYellowCards": -1
+            }
+        },
+        {
+            "$facet": {
+                "stats": [
+                    {
+                        "$group": {
+                            "_id": null,
+                            "maxYellowCards": {
+                                "$max": "$totalYellowCards"
+                            },
+                            "minYellowCards": {
+                                "$min": "$totalYellowCards"
+                            }
+                        }
+                    }
+                ],
+                "allPlayers": [
+                    {
+                        "$project": {
+                            "_id": 1,
+                            "totalYellowCards": 1,
+                            "matchesPlayed": 1
+                        }
+                    }
+                ],
+                "additionalData": [
+                    {
+                        "$group": {
+                            "_id": null,
+                            "percentage_games_played": {
+                                "$first": "$percentage_games_played"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "$unwind": "$stats"
+        },
+        {
+            "$addFields": {
+                "percentage_games_played": {
+                    "$arrayElemAt": [
+                        "$additionalData.percentage_games_played", 0
+                    ]
+                },
+                "maxYellowCards": "$stats.maxYellowCards",
+                "minYellowCards": "$stats.minYellowCards"
+            }
+        },
+        {
+            "$project": {
+                "mostYellowCards": {
+                    "$filter": {
+                        "input": "$allPlayers",
+                        "as": "player",
+                        "cond": {
+                            "$eq": [
+                                "$$player.totalYellowCards", "$maxYellowCards"
+                            ]
+                        }
+                    }
+                },
+                "leastYellowCards": {
+                    "$filter": {
+                        "input": "$allPlayers",
+                        "as": "player",
+                        "cond": {
+                            "$eq": [
+                                "$$player.totalYellowCards", "$minYellowCards"
+                            ]
+                        }
+                    }
+                },
+                "percentage_games_played": 1
+            }
+        }
+    ]
+    
+      
+
+}
