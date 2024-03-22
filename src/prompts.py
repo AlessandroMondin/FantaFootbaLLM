@@ -81,12 +81,20 @@ How many goals has this goalkeeper received in the last 5 matches? Does this pla
     my players? Can you delete "player a" from my team?
 - "info": if CONTENT refards information on how to use the chatbot, which questions to ask etc.
 - "unknown": if the CONTENT does not concern none of the categories listed above.
+This prompt must return a category between "suggestion", "research", "team_management", "info", "unknown" AND the english translation of <<MESSAGE>>
+EXAMPLE:
+<<MESSAGE>>
+"Quanti goal ha segnato leao quest'anno?"
+
+<<OUTPUT>>
+["research", "How many goals has scored leao this year?"]
+
+<<OUTPUT>>
 
 <<MESSAGE>>
 {message}
 
 <<OUTPUT>>
-Return either "suggestion", "research", "info", "team_management", "unknown"
 """
 
 info_prompt = """

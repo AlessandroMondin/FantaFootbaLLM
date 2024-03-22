@@ -53,7 +53,7 @@ class SerieA_DatabaseManager:
             self.championship_collection.update_one(
                 {"current_match_day": {"$exists": True}, "season": self.current_season},
                 {"$set": {"current_match_day": self._current_match_day}},
-                upsert=True
+                upsert=True,
             )
 
         return self._current_match_day
