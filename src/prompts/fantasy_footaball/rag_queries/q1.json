@@ -1,0 +1,36 @@
+{
+    "question": "how many goals has chukwueze scored this year?",
+    "query": [
+        {"$match": {"season": "2023-24", "matches.players.name": "chukwueze"}},
+        {"$unwind": "$matches"},
+        {"$unwind": "$matches.players"},
+        {"$match": {"matches.players.name": "chukwueze"}},
+        {
+            "$group": {
+                "_id": "$matches.players.name",
+                "totalGoals": {
+                    "$sum": {
+                        "$reduce": {
+                            "input": "$matches.players.bonus_malus",
+                            "initialValue": 0,
+                            "in": {
+                                "$cond": [
+                                    {
+                                        "$or": [
+                                            {"$eq": ["$$this.title", "Gol segnati"]},
+                                            {"$eq": ["$$this.title", "Rigori segnati"]}
+                                        ]
+                                    },
+                                    {"$add": ["$$value", "$$this.value"]},
+                                    "$$value"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "matchesPlayed": {"$sum": 1}
+            }
+        }
+    ]
+  }
+  

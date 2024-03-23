@@ -1,5 +1,5 @@
 {
-    "question": "Which is the goal keeper who saved most penalties?",
+    "question": "Which are the 3 goal keepers who saved most penalties?",
     "query": [
         {
           "$unwind": "$matches"

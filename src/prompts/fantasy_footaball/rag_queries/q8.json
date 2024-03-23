@@ -1,5 +1,5 @@
 {
-    "question": "Which are the players of the teams juventus, lecce and genoa with a average grade greater than 6.2 and with more than 20 games playerd?",
+    "question": "Which are the players of the teams juventus, lecce and genoa with a average grade greater than 6.2 and with more than 20 games played?",
     "query": [
         {
           "$match": {

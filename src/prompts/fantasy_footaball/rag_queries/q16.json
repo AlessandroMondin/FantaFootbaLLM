@@ -13,15 +13,20 @@
                             "initialValue": 0,
                             "in": {
                                 "$cond": [
-                                    {"$eq": ["$$this.title", "Gol segnati"]},
+                                    {
+                                        "$or": [
+                                            {"$eq": ["$$this.title", "Gol segnati"]},
+                                            {"$eq": ["$$this.title", "Rigori segnati"]}
+                                        ]
+                                    },
                                     {"$add": ["$$value", "$$this.value"]},
-                                    "$$value",
+                                    "$$value"
                                 ]
-                            },
+                            }
                         }
                     }
                 },
-                "matchesPlayed": {"$sum": 1},
+                "matchesPlayed": {"$sum": 1}
             }
         },
         {
@@ -30,9 +35,9 @@
                 "pipeline": [
                     {"$match": {"current_match_day": {"$exists": true}}},
                     {"$sort": {"season": -1, "current_match_day": -1}},
-                    {"$limit": 1},
+                    {"$limit": 1}
                 ],
-                "as": "season_info",
+                "as": "season_info"
             }
         },
         {"$unwind": "$season_info"},
@@ -43,7 +48,7 @@
                 "$expr": {
                     "$gte": [
                         "$matchesPlayed",
-                        {"$multiply": ["$current_match_day", "$percentage_games_played"]},
+                        {"$multiply": ["$current_match_day", "$percentage_games_played"]}
                     ]
                 }
             }
@@ -54,8 +59,11 @@
                 "_id": 1,
                 "totalGoals": 1,
                 "matchesPlayed": 1,
-                "percentage_games_played": 1,
+                "percentage_games_played": 1
             }
         },
-    ],
+        {
+            "$limit": 1
+        }
+    ]    
 }

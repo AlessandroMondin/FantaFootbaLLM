@@ -1,5 +1,5 @@
 {
-    "question": "How many assists has dimarco done in the last 8 games? ",
+    "question": "How many assists has dimarco done in the last 8 games he played? ",
     "query": [
         {
           "$match": {
