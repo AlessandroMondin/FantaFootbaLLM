@@ -1,0 +1,52 @@
+{
+    "question": "How many assists has dimarco done in the last 8 games? ",
+    "query": [
+        {
+          "$match": {
+            "season": "2023-24",
+            "matches.players.name": "dimarco"
+          }
+        },
+        {
+          "$unwind": "$matches"
+        },
+        {
+          "$unwind": "$matches.players"
+        },
+        {
+          "$match": {
+            "matches.players.name": "dimarco"
+          }
+        },
+        {
+          "$sort": {
+            "matches.match_day": -1
+          }
+        },
+        {
+          "$limit": 8
+        },
+        {
+          "$group": {
+            "_id": "$matches.players.name",
+            "totalAssists": {
+              "$sum": {
+                "$reduce": {
+                  "input": "$matches.players.bonus_malus",
+                  "initialValue": 0,
+                  "in": {
+                    "$cond": [
+                      {"$eq": ["$$this.title", "Assist"]},
+                      {"$add": ["$$value", "$$this.value"]},
+                      "$$value"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+}
+
+  

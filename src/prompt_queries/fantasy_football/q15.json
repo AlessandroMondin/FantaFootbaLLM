@@ -1,0 +1,26 @@
+{
+    "question": "Is there a player who never took a grade lower than 6.5?",
+    "query": [
+      {
+        "$unwind": "$matches"
+      },
+      {
+        "$unwind": "$matches.players"
+      },
+      {
+        "$group": {
+          "_id": "$matches.players.name",
+          "minGrade": {
+            "$min": "$matches.players.grade"
+          }
+        }
+      },
+      {
+        "$match": {
+          "minGrade": {
+            "$gte": 6.5
+          }
+        }
+      }
+    ]
+  }  

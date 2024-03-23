@@ -1,0 +1,59 @@
+{
+    "question": "Which is the goal keeper who saved most penalties?",
+    "query": [
+        {
+          "$unwind": "$matches"
+        },
+        {
+          "$unwind": "$matches.players"
+        },
+        {
+          "$match": {
+            "matches.players.role": "p"
+          }
+        },
+        {
+          "$group": {
+            "_id": {
+              "name": "$matches.players.name",
+              "team": "$team"
+            },
+            "averageGrade": {
+              "$avg": "$matches.players.grade"
+            },
+            "totalPenaltiesSaved": {
+              "$sum": {
+                "$reduce": {
+                  "input": "$matches.players.bonus_malus",
+                  "initialValue": 0,
+                  "in": {
+                    "$cond": [
+                      { "$eq": ["$$this.title", "Rigori parati"] },
+                      { "$add": ["$$value", "$$this.value"] },
+                      "$$value"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "$sort": {
+            "totalPenaltiesSaved": -1,
+            "averageGrade": -1
+          }
+        },
+        {
+          "$limit": 3
+        },
+        {
+          "$project": {
+            "name": "$_id.name",
+            "team": "$_id.team",
+            "totalPenaltiesSaved": "$totalPenaltiesSaved",
+            "averageGrade": 1
+          }
+        }
+      ]
+}

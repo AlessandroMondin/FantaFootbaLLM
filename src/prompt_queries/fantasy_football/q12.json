@@ -1,0 +1,102 @@
+{
+    "question": "Which is the goal keeper who saved most penalties?",
+    "query": [
+        {
+          "$unwind": "$matches"
+        },
+        {
+          "$unwind": "$matches.players"
+        },
+        {
+          "$match": {
+            "matches.players.role": "p"
+          }
+        },
+        {
+          "$group": {
+            "_id": {
+              "name": "$matches.players.name",
+              "team": "$team"
+            },
+            "averageGrade": {
+              "$avg": "$matches.players.grade"
+            },
+            "totalPenaltiesSaved": {
+              "$sum": {
+                "$reduce": {
+                  "input": "$matches.players.bonus_malus",
+                  "initialValue": 0,
+                  "in": {
+                    "$cond": [
+                      {
+                        "$eq": [
+                          "$$this.title",
+                          "Rigori parati"
+                        ]
+                      },
+                      {
+                        "$add": [
+                          "$$value",
+                          "$$this.value"
+                        ]
+                      },
+                      "$$value"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "$sort": {
+            "totalPenaltiesSaved": -1
+          }
+        },
+        {
+          "$facet": {
+            "maxPenaltiesSaved": [
+              {
+                "$limit": 1
+              },
+              {
+                "$project": {
+                  "totalPenaltiesSaved": 1
+                }
+              }
+            ],
+            "goalkeepers": [
+              {
+                "$project": {
+                  "name": "$_id.name",
+                  "team": "$_id.team",
+                  "totalPenaltiesSaved": "$totalPenaltiesSaved",
+                  "averageGrade": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "$project": {
+            "goalkeepers": {
+              "$filter": {
+                "input": "$goalkeepers",
+                "as": "goalkeeper",
+                "cond": {
+                  "$eq": [
+                    "$$goalkeeper.totalPenaltiesSaved",
+                    {
+                      "$arrayElemAt": [
+                        "$maxPenaltiesSaved.totalPenaltiesSaved",
+                        0
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+}

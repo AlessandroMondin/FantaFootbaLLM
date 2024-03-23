@@ -1,0 +1,39 @@
+{
+    "question": "Which are the top 3 goal keepers considering they average and fantasy average?",
+    "query": [
+        {
+          "$unwind": "$matches"
+        },
+        {
+          "$unwind": "$matches.players"
+        },
+        {
+          "$match": {
+            "matches.players.role": "p"
+          }
+        },
+        {
+          "$group": {
+            "_id": "$matches.players.name",
+            "GamesPlayed": {
+              "$sum": 1
+            },
+            "averageGrade": {
+              "$avg": "$matches.players.grade"
+            },
+            "averageFantaGrade": {
+              "$avg": "$matches.players.fanta_grade"
+            }
+          }
+        },
+        {
+          "$sort": {
+            "averageFantaGrade": -1,
+            "GamesPlayed": -1
+          }
+        },
+        {
+          "$limit": 3
+        }
+      ]      
+}

@@ -1,0 +1,58 @@
+{
+    "question": "Which of these two defenders: calabria and dimarco plays better against juventus?",
+    "query": [
+        {
+          "$unwind": "$matches"
+        },
+        {
+          "$unwind": "$matches.players"
+        },
+        {
+          "$match": {
+            "matches.players.name": {
+              "$in": ["calabria", "dimarco"]
+            },
+            "$or": [
+              {
+                "matches.team_home": "juventus"
+              },
+              {
+                "matches.team_away": "juventus"
+              }
+            ]
+          }
+        },
+        {
+          "$group": {
+            "_id": {
+              "playerName": "$matches.players.name",
+              "team": "$team"
+            },
+            "averageGrade": {
+              "$avg": "$matches.players.grade"
+            },
+            "averageFantaGrade": {
+              "$avg": "$matches.players.fanta_grade"
+            },
+            "matchesAgainstJuventus": {
+              "$sum": 1
+            }
+          }
+        },
+        {
+          "$project": {
+            "playerName": "$_id.playerName",
+            "team": "$_id.team",
+            "averageGrade": 1,
+            "averageFantaGrade": 1,
+            "matchesAgainstJuventus": 1,
+            "_id": 0
+          }
+        },
+        {
+          "$sort": {
+            "averageFantaGrade": -1
+          }
+        }
+      ]      
+}
