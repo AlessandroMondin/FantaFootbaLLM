@@ -1,4 +1,10 @@
+import glob
+import hashlib
+import json
+
 from pymongo import MongoClient
+from qdrant_client import models, QdrantClient
+from sentence_transformers import SentenceTransformer
 
 from utils import logger, validate_year_range
 from scrapers.serie_a_scraper import SerieA_Scraper
@@ -14,16 +20,42 @@ class SerieA_DatabaseManager:
     MONGO_DB_PLAYER_INFO = "players"
     MONGO_DB_NEXT_MATCH_FORECAST = "forecast_match_day"
 
-    def __init__(self, scraper):
+    QDRANT_COLLECTION_BASENAME = "fantasy_football"
+    RAG_QUERIES = "src/prompts/fantasy_footaball/rag_queries/*json"
+
+    def __init__(
+        self,
+        scraper,
+        encoder: SentenceTransformer = SentenceTransformer(
+            "sentence-transformers/all-MiniLM-L6-v2"
+        ),
+    ):
         self.scraper = scraper
+        self.encoder = encoder
+        # SETUP MONGO DB COLLECTIONS
         self.client = MongoClient("mongodb://localhost:27017/")
-        # TODO: update at the end of the season
         if self.MONGO_DB_NAME not in self.client.list_database_names():
             self.setup_mongo()
         self.db = self.client[self.MONGO_DB_NAME]
         self.players_collection = self.db[self.MONGO_DB_PLAYER_INFO]
         self.championship_collection = self.db[self.MONGO_DB_SERIE_A_GEN_INFO]
         self.forecast_collection = self.db[self.MONGO_DB_NEXT_MATCH_FORECAST]
+
+        # SETUP QDRANT COLLECTIONS
+        self.qdrant = QdrantClient("localhost", port=6333)
+        collections = self.qdrant.get_collections()
+        collections = [collection.name for collection in collections.collections]
+
+        # or order to create different collections based on the encoder used, we
+        # we create a unique hash based on the encoder modules. Probably other, smoother
+        # ways could be adopted.
+        hash_object = hashlib.sha256(str(self.encoder.modules).encode())
+        hex_dig = hash_object.hexdigest()
+        self.qdrant_collection = self.QDRANT_COLLECTION_BASENAME + hex_dig
+
+        if self.qdrant_collection not in collections:
+
+            self.setup_qdrant()
 
         # for properties
         self._current_match_day = None
@@ -95,7 +127,10 @@ class SerieA_DatabaseManager:
             elif self._serie_a_teams is None or self.serie_a_teams == {}:
                 self._serie_a_teams = self.scraper.get_team_names()
                 self.championship_collection.insert_one(
-                    {"serie_a_teams": self._serie_a_teams, "season": self.current_season}
+                    {
+                        "serie_a_teams": self._serie_a_teams,
+                        "season": self.current_season,
+                    }
                 )
 
         return self._serie_a_teams
@@ -113,7 +148,10 @@ class SerieA_DatabaseManager:
             if self._serie_a_players == {} or self._serie_a_players is None:
                 self._serie_a_players = self.scraper.get_player_names()
                 self._serie_a_players = self.championship_collection.insert_one(
-                    {"serie_a_teams": self._serie_a_teams, "season": self.current_season}
+                    {
+                        "serie_a_teams": self._serie_a_teams,
+                        "season": self.current_season,
+                    }
                 )
         return self._serie_a_players
 
@@ -281,6 +319,43 @@ class SerieA_DatabaseManager:
             {"season": self.current_season, "posticipated_matches": {"$exists": True}},
             {"$pull": {"posticipated_matches": match_details}},
         )
+
+    def setup_qdrant(self):
+        self.qdrant.create_collection(
+            collection_name=self.qdrant_collection,
+            vectors_config=models.VectorParams(
+                # Vector size is defined by used model
+                size=self.encoder.get_sentence_embedding_dimension(),
+                distance=models.Distance.COSINE,
+            ),
+        )
+
+        documents = []
+        for document in glob.glob(self.RAG_QUERIES):
+            with open(document, "r") as f:
+                document = json.load(f)
+                documents.append(document)
+
+        logger.info("Uploading embeddings to QDRANT")
+        self.qdrant.upload_points(
+            collection_name=self.qdrant_collection,
+            points=[
+                models.PointStruct(
+                    id=idx,
+                    vector=self.encoder.encode(doc["question"]).tolist(),
+                    payload=doc,
+                )
+                for idx, doc in enumerate(documents)
+            ],
+        )
+
+    def qdant_retrieve(self, message: str):
+        hits = self.qdrant.search(
+            collection_name=self.qdrant_collection,
+            query_vector=self.encoder.encode(message).tolist(),
+            limit=5,
+        )
+        return hits
 
 
 if __name__ == "__main__":
