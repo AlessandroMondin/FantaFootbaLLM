@@ -349,12 +349,13 @@ class SerieA_DatabaseManager:
             ],
         )
 
-    def qdant_retrieve(self, message: str):
+    def qdant_retrieve(self, message: str, retrive_n_queries=5):
         hits = self.qdrant.search(
             collection_name=self.qdrant_collection,
             query_vector=self.encoder.encode(message).tolist(),
-            limit=5,
+            limit=retrive_n_queries,
         )
+        hits = [hit.payload for hit in hits]
         return hits
 
 

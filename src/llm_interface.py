@@ -10,7 +10,7 @@ from langchain.schema import AIMessage, HumanMessage
 from unidecode import unidecode
 
 
-from prompts import (
+from prompts.fantasy_footaball.prompts import (
     message_is_listing_players_prompt,
     no_players_in_the_message,
     team_added_prompt,
@@ -19,6 +19,8 @@ from prompts import (
     style_concise,
     style_very_concise,
     queries_prompt,
+    result_explanation_prompt,
+    correct_json_prompt,
 )
 from data_handler import SerieA_DatabaseManager
 from scrapers.serie_a_scraper import SerieA_Scraper
@@ -53,8 +55,11 @@ class LLMInterface:
     #  vs players present in the database
     fuzzy_threshold = 80
 
-    def __init__(self, data_manager=None, max_message_history: int = 4) -> None:
+    def __init__(
+        self, data_manager=None, max_message_history: int = 4, retrieve_n_queries=8
+    ) -> None:
         self.max_message_history = max_message_history
+        self.retrieve_n_queries = retrieve_n_queries
         self.data_manager = data_manager
 
         self.light_llm_analyst = gpt3_analyst
@@ -69,9 +74,15 @@ class LLMInterface:
         # for debug purpose
         self.history = []
 
+        self.bonus_malus_names = list(
+            self.data_manager.scraper.bonus_malus_table.keys()
+        )
+
     def chat_debug(self, message, history=""):
 
-        prompt = self.prepare_prompt(prompt_template=label_user_message, message=message)
+        prompt = self.prepare_prompt(
+            prompt_template=label_user_message, message=message
+        )
         prompt = self.langchain_format(prompt, self.history[-2:])
         out = self.light_llm_analyst.invoke(prompt).content
         category, eng_message = eval(out)
@@ -81,61 +92,79 @@ class LLMInterface:
             prompt = self.langchain_format(prompt, self.history[-2:])
             response = self.light_llm_analyst.invoke(prompt).content
             return response
-        elif category == "suggestion":
-            pass
-            # if self.team_is_created is False:
-            #     prompt = self.prepare_prompt(
-            #         message_is_listing_players_prompt, chat_history=message
-            #     )
-            #     prompt = self.langchain_format(prompt)
-            #     user_players = self.light_llm_analyst.invoke(prompt).content
 
-            #     if eval(user_players) != []:
-            #         identified_players, non_identified_players = self.get_players(
-            #             potential_players=user_players
-            #         )
-            #         _ = self.add_players(identified_players)
-            #         self.team_is_created = True
+        # if self.team_is_created is False:
+        #     prompt = self.prepare_prompt(
+        #         message_is_listing_players_prompt, chat_history=message
+        #     )
+        #     prompt = self.langchain_format(prompt)
+        #     user_players = self.light_llm_analyst.invoke(prompt).content
 
-            #         prompt = self.prepare_prompt(
-            #             team_added_prompt,
-            #             non_identified_players=non_identified_players,
-            #             style=style_very_concise,
-            #         )
-            #         prompt = self.langchain_format(prompt, self.history)
-            #         response = self.heavy_llm_chat.invoke(prompt).content
-            #         return response
-
-            #     else:
-            #         prompt = self.prepare_prompt(
-            #             no_players_in_the_message,
-            #             message=message,
-            #             style=style_concise,
-            #         )
-            #         prompt = self.langchain_format(prompt, self.history)
-            #         response = self.light_llm_chat.invoke(prompt).content
-            #         self.history.append([message, response])
-            #         return response
+        #     if eval(user_players) != []:
+        #         identified_players, non_identified_players = self.get_players(
+        #             potential_players=user_players
+        #         )
+        #         _ = self.add_players(identified_players)
+        #         self.team_is_created = True
 
         elif category == "research":
+            # QUERY
+            closest_queries = self.data_manager.qdant_retrieve(
+                eng_message, self.retrieve_n_queries
+            )
+            prompt_history = (
+                self.history[-1:] if len(self.history) > 1 else self.history
+            )
             prompt = self.prepare_prompt(
                 prompt_template=queries_prompt,
-                message=message,
+                bonus_malus_names=self.bonus_malus_names,
+                examples=self.double_braces(str(closest_queries)),
+                message=eng_message,
+                history=prompt_history,
+            )
+            prompt = self.langchain_format(prompt, [])
+            query = self.heavy_llm_analyst.invoke(prompt).content
+            results = []
+            try:
+                try:
+                    query = self.multiline_eval(query)
+                    if isinstance(query, tuple):
+                        query = list(query)
+                    if (
+                        isinstance(query, dict)
+                        and "query" in query
+                        and isinstance(query["query"], list)
+                    ):
+                        query = list(query["query"])
+                except SyntaxError:
+                    prompt = self.prepare_prompt(
+                        prompt_template=correct_json_prompt, data_structure=query
+                    )
+                    prompt = self.langchain_format(prompt, [])
+                    query = self.light_llm_analyst.invoke(prompt).content
+                    query = self.multiline_eval(query)
+
+                outputs = self.data_manager.players_collection.aggregate(query)
+                for out in outputs:
+                    results.append(out)
+
+            except Exception as e:
+                results = "query failed"
+            # EXPLANATION
+            prompt = self.prepare_prompt(
+                prompt_template=result_explanation_prompt,
+                question=message,
+                answer=results,
                 history=self.history[-1:],
             )
-            prompt = self.langchain_format(prompt, self.history[-2:])
-            query = self.heavy_llm_analyst.invoke(prompt).content
-            out = list(self.multiline_eval(query))
-            self.history.append([message, query])
-            return [out, query]
-
-        elif category == "team_management":
-            pass
+            prompt = self.langchain_format(prompt, [])
+            out = self.heavy_llm_chat.invoke(prompt).content
+            gpt_response = {"query": query, "response": out}
+            self.history.append([message, str(gpt_response)])
+            return out
 
         else:
             pass
-
-        # TODO: Further integration with prepare_prompt as needed for other functionalities.
 
     def multiline_eval(self, expr):
         "Evaluate several lines of input, returning the result of the last line"
@@ -194,7 +223,9 @@ class LLMInterface:
             user_written_name = unidecode(user_written_name)
             # Extract the best match above the threshold
             identified = False
-            best_match, score = process.extractOne(user_written_name, ground_truth_names)
+            best_match, score = process.extractOne(
+                user_written_name, ground_truth_names
+            )
             if score >= self.fuzzy_threshold:
                 # identified_players.append((user_written_name, best_match, score))
                 identified_players.append(best_match)
@@ -227,6 +258,26 @@ class LLMInterface:
                 {"user_players": new_players}
             )
         return already_part_of_team
+
+    def double_braces(self, input_str):
+        """
+        Adds an additional brace before each occurrence of "{" or "}" in the input string.
+
+        Parameters:
+        - input_str (str): The input string to process.
+
+        Returns:
+        - str: The modified string with doubled braces.
+        """
+        modified_str = ""
+        for char in input_str:
+            if char == "{":
+                modified_str += "{{"
+            elif char == "}":
+                modified_str += "}}"
+            else:
+                modified_str += char
+        return modified_str
 
 
 # if __name__ == "__main__":
