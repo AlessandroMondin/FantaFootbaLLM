@@ -72,8 +72,6 @@ Finally tell the user that he can ask you these questions:
 label_user_message = """
 If there is any text prior to this prompt, consider it as <<HISTORY>>
 Based on the <<MESSAGE>> and <<HISTORY>> that we refer as CONTENT:
-- "suggestion": if the CONTENT asks a question like "what is the best
- modulo I can use next match with which players? Which team should I use for my next match?
 - "research": if the CONTENT asks a question like: What is the average score of this player in the last 3 matches he played?
  How many goals has this player scoared? How many yellow card has this player taken? How many goals has this team scored in the last 5 matches?
 How many goals has this goalkeeper received in the last 5 matches? Does this player score more when the other team uses which module? Give me the 5 players of atalanta with best average grade.
@@ -115,254 +113,85 @@ Finally tell the user that he can ask you these questions:
 
 
 queries_prompt = """
-Given the question asked in <<MESSAGE>>, which can be contextualised with <<HISTORY>>, you need to translate the question into a
-pymongo query used to retrieve the infomation asked. You should return in <<OUTPUT>> the query. Bear in mind the <<OUTPUT>>
-must be a python executable code, so just return the query withoud any other words so that eval(<<OUTPUT>>) executes the query.
-The pymongo contains 3 collections: "self.data_manager.forecast_collection", "self.data_manager.players_collection", "self.data_manager.championship_collection".
+Given the question asked in <<MESSAGE>>, whose context can be understood within
+<<HISTORY>>, translate the question into the <<OUTPUT>> pymongo query used to retrieve
+the infomation. Bear in mind the <<OUTPUT>> must be a python executable code.
 ---
-The self.data_manager.forecast_collection has the following schema and contains the information on matchday that is going to be played.
-Collection
-│
-├── _id: 65e9dbed6b4ba469cc4aa8b8
-├── current_match_day: 27
-└── competitions: Array[10]
-    └── [0]
-        ├── team_home: "napoli"
-        ├── team_away: "torino"
-        ├── team_home_forecast
-        │   ├── team_formation: "4-3-3"
-        │   ├── start_11: Array[11]
-        │   │   ├── [0] - {{ player_name: "meret", player_role: "p", percentage_of_playing: 90 }}
-        │   │   ├── [...]
-        │   │   └── [10] - {{ ... }}
-        │   └── reserves: Array[11]
-        │       ├── [0] - {{ player_name: "gollini", player_role: "p", percentage_of_playing: 5 }}
-        │       ├── [...]
-        │       └── [10] - {{ ... }}
-        └── team_away_forecast
-            ├── team_formation: "3-4-1-2"
-            ├── start_11: Array[11]
-            │   ├── [0] - {{ ... }}
-            │   ├── [...]
-            │   └── [10] - {{ ... }}
-            └── reserves: Array[8]
-                ├── [0] - {{ ... }}
-                └── [7] - {{ ... }}
----
-The self.data_manager.players_collection has the following schema and contains for each player their
-fantasy football scores. 
-Bear in mind, all the distinct bonus_malus are: 'Ammonizione', 'Assist', 'Autorete', 'Espulsione', 'Gol segnati', 'Gol subiti', 'Rigori parati', 'Rigori sbagliati', 'Rigori segnati'.
-Bear in mind, add the disticct roles are: ['a', 'c', 'd', 'p'], a = attaccante, c = centrocampista, d=difensore, p=portiere.
-Here an example of the the document present within the self.players_collection for the goal-keeper 'sommer'
+The self.data_manager.forecast_collection has the following schema and contains the
+information on matchday that is going to be played.
 
-Player Document
+---
+The self.data_manager.players_collection has the following schema and contains for each
+player their fantasy football scores.
+Bear in mind, all the distinct bonus_malus are: {bonus_malus_names}'.
+Bear in mind, add the distinct roles are: ['a', 'c', 'd', 'p'], a = attaccante,
+c = centrocampista, d=difensore, p=portiere.
+
+Player Collection Schema, 2 documents as example.
 │
-├── _id: 65eed774d007ec44ea5c9e07
-├── name: "rafael-leao"
-├── role: "a"
-├── team: "milan"
-└── matchStats: Array[23]
-    ├── [0] - {{ ... }}
-    ├── [1]
-    │   ├── matchday: 2
-    │   ├── adjective_performance: "Determinante"
-    │   ├── grade: 7
-    │   ├── bonus_malus: Array[1]
-    │   │   └── [0]
-    │   │       ├── title: "Assist"
-    │   │       ├── value: "1"
-    │   │       ├── grade_with_bm: 8
-    │   │       └── description: "Una cosa buona, una no, una buona, una no. Salta spesso Schuurs, ma po…"
-    ├── [2]
-    │   ├── matchday: 3
-    │   ├── adjective_performance: "Pornografico"
-    │   ├── grade: 7.5
-    │   ├── bonus_malus: Array[1]
-    │   │   └── [0]
-    │   │       ├── title: "Gol segnati"
-    │   │       ├── value: "1"
-    │   │       ├── grade_with_bm: 10.5
-    │   │       └── description: "L'ennesima serata da superstar. Quando punta l'avversario sfreccia in …"
+├── _id: 65f97dd9ab06d5603151f7dd
+├── season: "2023-24"
+├── team: "inter"
+└── matches: Array[29]
+    ├── [0]
+    │   ├── match_day: 1
+    │   ├── team_home: "inter"
+    │   ├── team_away: "monza"
+    │   ├── goal_team_home: 2
+    │   ├── goal_team_away: 0
+    │   ├── result: "win"
+    │   └── players: Array[12]
+    │       ├── [0]
+    │       │   ├── name: "sommer"
+    │       │   ├── role: "p"
+    │       │   ├── adjective_performance: "Disoccupato"
+    │       │   ├── grade: 6
+    │       │   ├── fanta_grade: 6
+    │       │   ├── bonus_malus: Array[0]
+    │       │   └── description: "L'esordio in campionato è dei più semplici: qualche pallone smanacciato in uscita, nessuna parata di rilievo e una serata assolutamente tranquilla. Porta a casa il primo clean sheet stagionale."
+    │       ├── [...]
     ├── [...]
-    └── [22] - {{ ... }}
-
+    └── [28]
+        ├── match_day: 29
+        ├── team_home: "inter"
+        ├── team_away: "napoli"
+        ├── goal_team_home: 1
+        ├── goal_team_away: 1
+        ├── result: "tie"
+        └── players: Array[N]
+            ├── [0]
+            │   ├── name: "sommer"
+            │   ├── role: "p"
+            │   ├── adjective_performance: "Incolpevole"
+            │   ├── grade: 6
+            │   ├── fanta_grade: 5
+            │   ├── bonus_malus: Array[1]
+            │   │   └── [0]
+            │   │       ├── title: "Gol subiti"
+            │   │       ├── value: "1"
+            │   │       └── description: "Ordinaria amministrazione per lo svizzero, spettatore non pagante. Incolpevole sul gol subito."
+            ├── [...]
+            └── [N]
+                ├── name: "thuram"
+                ├── role: "a"
+                ├── adjective_performance: "Pessimo"
+                ├── grade: 5
+                ├── fanta_grade: 5
+                ├── bonus_malus: Array[0]
+                └── description: "Probabilmente la peggior prestazione della sua stagione in Serie A. Tante scelte sbagliate e un paio di occasioni da gol dove poteva fare decisamente meglio."
 ---
-The self.data_manager.championship_collection contains all the players of the user:
-An example of the document listing the players of the user:
-User Document
-│
-├── _id: 65edc8b23ce059ef45753cee
-└── user_players: Array[26]
-    ├── [0]: "calhanoglu"
-    ├── [1]: "celik"
-    ├── [2]: "ostigard"
-    ├── [3]: "djuric"
-    ├── [4]: "swiderski"
-    ├── [5]: "contini"
-    ├── [6]: "zielinski"
-    ├── [7]: "tomori"
-    ├── [8]: "calafiori"
-    ├── [9]: "gatti"
-    ├── [10]: "baschirotto"
-    ├── [11]: "kayode"
-    ├── [12]: "politano"
-    ├── [13]: "el-shaarawy"
-    ├── [14]: "jankto"
-    ├── [15]: "zambo-anguissa"
-    ├── [16]: "musah
-
-    
+<<HISTORY>>
+{history}
+---
 EXAMPLES:
+{examples}
 ---
-1)
-<<MESSAGE>>
-How many goals has leao scored this year?
-
-<<HISTORY>>
-
-<<OUTPUT>>
-self.data_manager.player_collection.aggregate([
-    {{"$match": {{"name": "rafael-leao"}}}},
-    {{"$unwind": "$matchStats"}},
-    {{"$unwind": "$matchStats.bonus_malus"}},
-    {{"$match": {{"matchStats.bonus_malus.title": "Gol segnati"}}}},
-    {{"$project": {{
-        "name": 1,
-        "role": 1,
-        "team": 1,
-        "goals": {{
-            "$toInt": "$matchStats.bonus_malus.value"
-        }}
-    }},
-    {{"$group": {{
-        "_id": {{
-            "name": "$name",
-            "role": "$role",
-            "team": "$team"
-        }},
-        "totalGoals": {{"$sum": "$goals"}}
-    }}
-])
-
-2)
-<<MESSAGE>>
-Who is the player who has received the most yellow cards and who has received the least?
-
-<<HISTORY>>
-
-<<OUTPUT>>
-self.data_manager.players_collection.aggregate([
-    {{"$unwind": "$matchStats"}},
-    {{"$unwind": "$matchStats.bonus_malus"}},
-    {{"$match": {{"matchStats.bonus_malus.title": "Ammonizione"}}, 
-    {{"$group": {{
-        "_id": "$name",
-        "totalYellowCards": {{"$sum": {{"$toInt": "$matchStats.bonus_malus.value"}}
-    }},
-    {{
-        "$facet": {{
-            "mostYellowCards": [
-                {{"$sort": {{"totalYellowCards": -1}}}},
-                {{"$limit": 1}}
-            ],
-            "fewestYellowCards": [
-                {{"$sort": {{"totalYellowCards": 1}}}},
-                {{"$limit": 1}}
-            ]
-        }}
-    }}
-])
-
-3)
-<<MESSAGE>>
-Was Calhanoglu's average higher in the first 10 games or in the last 5?
-
-<<HISTORY>>
-
-<<OUTPUT>>
-self.data_manager.players_collection.aggregate([
-    {{"$match": {{"name": "calhanoglu"}}}},
-    {{"$unwind": "$matchStats"}},
-    {{
-        "$group": {{
-            "_id": "$name",
-            "averageGradeFirst10": {{
-                "$avg": {{
-                    "$cond": [
-                        {{"$lte": ["$matchStats.matchday", 10]}},
-                        "$matchStats.grade",
-                        "$$REMOVE",
-                    ]
-                }}
-            }},
-            "averageGradeLast5": {{
-                "$avg": {{
-                    "$cond": [
-                        {{"$gte": ["$matchStats.matchday", 23]}},
-                        "$matchStats.grade",
-                        "$$REMOVE",
-                    ]
-                }}
-            }},
-        }}
-    }},
-    {{"$project": {{"_id": 0, "averageGradeFirst10": 1, "averageGradeLast5": 1}}}},
-])
-
-4)
-<<MESSAGE>>
-Ehi, how many goals per game has giroud scored this year??
-
-<<HISTORY>>
-
-<<OUTPUT>>
-self.data_manager.players_collection.aggregate([
-    {{ "$match": {{ "name": "giroud" }} }},
-    {{ "$addFields": {{ "numberOfGames": {{ "$size": "$matchStats" }} }} }},  # Assuming each document in matchStats represents a game
-    {{ "$unwind": "$matchStats" }},
-    {{ "$unwind": "$matchStats.bonus_malus" }},
-    {{ "$match": {{ "matchStats.bonus_malus.title": "Gol segnati" }} }},
-    {{ "$group": {{
-        "_id": "$name",
-        "totalGoals": {{ "$sum": {{ "$toInt": "$matchStats.bonus_malus.value" }} }},
-        "numberOfGames": {{ "$first": "$numberOfGames" }}
-    }} }},
-    {{ "$project": {{
-        "_id": 0,
-        "name": "$_id",
-        "totalGoals": 1,
-        "goalsPerGame": {{ "$divide": ["$totalGoals", "$numberOfGames"] }}
-    }} }}
-])
-5)
-<<MESSAGE>>
-Dammi i cinque difensori di atalanta, sassuolo, e cagliari con fantamedia piu' alta
-
-<<HISTORY>>
-
-<<OUTPUT>>
-self.data_manager.players_collection.aggregate([
-    {{ "$match": {{ "$or": [{{ "team": "atalanta" }}, {{ "team": "sassuolo" }}, {{ "team": "cagliari" }}], "role": "d" }} }},
-    {{ "$unwind": "$matchStats" }},
-    {{ "$group": {{
-        "_id": "$name",
-        "averageGradeWithBM": {{ "$avg": "$matchStats.grade_with_bm" }}
-    }} }},
-    {{ "$sort": {{ "averageGradeWithBM": -1 }} }},
-    {{ "$limit": 5 }}
-])
-
-
----
-
 <<MESSAGE>>
 {message}
 
-<<HISTORY>>
-{history}
 
 <<OUTPUT>>
-Pymongo query to reply what is asked in message.
+Pymongo query, like "query" in the examples.
 """
 
 suggestion_analysis_prompt = """
@@ -415,4 +244,37 @@ to allow the user to make the best possible decision.
 {statistics}
 
 <<ANSWER>>
+"""
+
+result_explanation_prompt = """
+POV: You are an expert of fantasy-footaball analysis.
+The user asked a <<QUESTION>>, and the <<ANSWER>> is in MongoDB format.
+You need to translate <<ANSWER>> into human language.
+If <<ANSWER>> is [] or "query failed", tell the user that he must specify the whole
+statistic within the message since this system strugges to memorize the subject of the
+discussion. Also tell him that is the instruction was clear, the statistics couldn't be
+retrieved.
+
+<<QUESTION>>
+{question}
+
+<<HISTORY>>
+{answer}
+
+<<ANSWER>>
+{answer}
+
+<<OUTPUT>>
+You must reply in the same language the user used in <<QUESTION>> and <<HISTORY>>.
+"""
+
+correct_json_prompt = """
+The following <<DATA STRUCTURE>> might contain syntax errors, like missing parenthesis.
+the <<OUTPUT>> need to by the same data strucure CORRECTED of eventual errors.
+return <<OUTPUT>>
+
+<<DATA STRUCTURE>>
+{data_structure}
+
+<<OUTPUT>>
 """

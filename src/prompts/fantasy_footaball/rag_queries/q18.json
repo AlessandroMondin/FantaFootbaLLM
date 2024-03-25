@@ -1,0 +1,55 @@
+{
+    "question": "Which is dimarco fantasy average when playing against milan, juventus, atalanta, roma and napoli?",
+    "query": [
+    {
+      "$match": {
+        "matches.players.name": "dimarco",
+        "season": "2023-24"
+      }
+    },
+    {
+      "$unwind": "$matches"
+    },
+    {
+      "$unwind": "$matches.players"
+    },
+    {
+      "$match": {
+        "matches.players.name": "dimarco",
+        "$or": [
+          {
+            "matches.team_home": {
+              "$in": [
+                "milan",
+                "juventus",
+                "atalanta",
+                "roma",
+                "napoli"
+              ]
+            }
+          },
+          {
+            "matches.team_away": {
+              "$in": [
+                "milan",
+                "juventus",
+                "atalanta",
+                "roma",
+                "napoli"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "$group": {
+        "_id": "$matches.players.name",
+        "averageFantaGrade": {
+          "$avg": "$matches.players.fanta_grade"
+        }
+      }
+    }
+  ]
+}
+  

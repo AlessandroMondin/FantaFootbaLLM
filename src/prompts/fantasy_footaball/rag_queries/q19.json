@@ -1,0 +1,20 @@
+{
+    "question": "Which are the top 5 defenders of atalanta, bologna, and napoli considering the fantasy average?",
+    "query": [
+        { "$unwind": "$matches" },
+        { "$unwind": "$matches.players" },
+        { "$match": { "matches.players.role": "d" } },
+        { "$match": { "team": { "$in": ["atalanta", "bologna", "napoli"] } } },
+        {
+          "$group": {
+            "_id": {
+              "name": "$matches.players.name",
+              "team": "$team"
+            },
+            "averageFantaGrade": { "$avg": "$matches.players.fanta_grade" }
+          }
+        },
+        { "$sort": { "averageFantaGrade": -1 } },
+        { "$limit": 5 }
+      ]      
+}
