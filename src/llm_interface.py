@@ -236,29 +236,6 @@ class LLMInterface:
 
         return identified_players, non_identified_players
 
-    def add_players(self, list_of_players):
-        # players list of players not already part of player team.
-        new_players = []
-        already_part_of_team = []
-        for player in list_of_players:
-            # Check if the player is already present
-            player_exists = self.data_manager.championship_collection.find_one(
-                {"user_players": player}
-            )
-
-            if not player_exists:
-                # If the player doesn't exist, append to the new players list
-                new_players.append(player)
-            else:
-                already_part_of_team.append(player)
-
-        # If there are new players, add them as a new document
-        if new_players:
-            self.data_manager.championship_collection.insert_one(
-                {"user_players": new_players}
-            )
-        return already_part_of_team
-
     def double_braces(self, input_str):
         """
         Adds an additional brace before each occurrence of "{" or "}" in the input string.
