@@ -212,18 +212,6 @@ class SerieA_Scraper:
 
         self.championship_collection.insert_one({"serie_a_players": players})
 
-    def get_player_names(self):
-        """
-        Downloads all the SerieA players from the WEB and stores them in MongoDB.
-        """
-        players = []
-        for team in self.serie_a_teams:
-            url = f"{self.url_players}/{team}"
-            team_players = self._scrape_players_by_team(url=url)
-            players += team_players
-
-        self.championship_collection.insert_one({"serie_a_players": players})
-
     @scrape_error_handler
     def _scrape_forecast_next_match(self, url) -> List:
         """
@@ -542,7 +530,9 @@ class SerieA_Scraper:
                 if self.driver is not None:
                     self.close_driver()  # Close the existing driver if it exists
                 self.setup_selenium_driver()  # Setup a new driver
-                self.request_count = 0  # Reset request count after refreshing the driver
+                self.request_count = (
+                    0  # Reset request count after refreshing the driver
+                )
 
             self.driver.get(url)
             soup = BeautifulSoup(self.driver.page_source, "html.parser")
