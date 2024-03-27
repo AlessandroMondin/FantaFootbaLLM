@@ -1,0 +1,62 @@
+{
+    "question": "Who are the penalty-taking defenders and what is their average fantasy score?",
+    "query": [
+        {
+            "$unwind": "$matches"
+        },
+        {
+            "$unwind": "$matches.players"
+        },
+        {
+            "$unwind": {
+                "path": "$matches.players.bonus_malus",
+                "preserveNullAndEmptyArrays": true
+            }
+        },
+        {
+            "$group": {
+                "_id": {
+                    "name": "$matches.players.name",
+                    "role": "$matches.players.role",
+                    "team": "$team"
+                },
+                "penaltiesScored": {
+                    "$sum": {
+                        "$cond": [
+                            {
+                                "$eq": [
+                                    "$matches.players.bonus_malus.title",
+                                    "Rigori segnati"
+                                ]
+                            },
+                            "$matches.players.bonus_malus.value",
+                            0
+                        ]
+                    }
+                },
+                "fantaAverage": {
+                    "$avg": "$matches.players.fanta_grade"
+                },
+                "totalGames": {
+                    "$sum": 1
+                }
+            }
+        },
+        {
+            "$match": {
+                "_id.role": "d",
+                "penaltiesScored": {
+                    "$gte": 1
+                }
+            }
+        },
+        {
+            "$sort": {
+                "penaltiesScored": -1,
+                "fantaAverage": -1
+            }
+        }
+    ]
+    
+          
+}
