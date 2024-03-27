@@ -1,7 +1,8 @@
 import ast
 import os
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
+import gradio as gr
 from dotenv import load_dotenv
 from fuzzywuzzy import process
 from langchain.prompts import PromptTemplate
@@ -11,13 +12,10 @@ from unidecode import unidecode
 
 
 from prompts.fantasy_footaball.prompts import (
-    message_is_listing_players_prompt,
-    no_players_in_the_message,
-    team_added_prompt,
+    list_players_and_teams,
+    translate_user_message,
     label_user_message,
     info_prompt,
-    style_concise,
-    style_very_concise,
     queries_prompt,
     result_explanation_prompt,
     correct_json_prompt,
@@ -56,11 +54,16 @@ class LLMInterface:
     fuzzy_threshold = 80
 
     def __init__(
-        self, data_manager=None, max_message_history: int = 4, retrieve_n_queries=8
+        self,
+        data_manager=None,
+        max_message_history: int = 4,
+        retrieve_n_queries=8,
+        multilingual=True,
     ) -> None:
         self.max_message_history = max_message_history
         self.retrieve_n_queries = retrieve_n_queries
         self.data_manager = data_manager
+        self.multilingual = multilingual
 
         self.light_llm_analyst = gpt3_analyst
         self.heavy_llm_analyst = gpt3_analyst
@@ -79,36 +82,87 @@ class LLMInterface:
         )
 
     def chat_debug(self, message, history=""):
+        # condition to avoid translating to english a
+        # user message written in english.
+        if self.multilingual is True:
+            eng_message, source_language = self.translate_message(message)
 
+        else:
+            eng_message, source_language = message, "english"
+
+        category = self.categorize_message(eng_message)
+
+        if category == "info":
+            response = self.handle_info_message(message)
+            return response
+
+        elif category == "research":
+            response = self.handle_research_category(
+                original_message=message,
+                eng_message=eng_message,
+                source_language=source_language,
+            )
+            return response
+
+        else:
+            # TODO: write prompt for the non-pertinent message.
+            pass
+
+    def translate_message(self, message):
+        prompt = self.prepare_prompt(
+            prompt_template=translate_user_message, message=message
+        )
+        prompt = self.langchain_format(prompt, self.history[-2:])
+
+        eng_message, source_language = eval(
+            self.light_llm_analyst.invoke(prompt).content
+        )
+
+        return eng_message, source_language
+
+    def categorize_message(self, message):
         prompt = self.prepare_prompt(
             prompt_template=label_user_message, message=message
         )
         prompt = self.langchain_format(prompt, self.history[-2:])
         out = self.light_llm_analyst.invoke(prompt).content
-        category, eng_message = eval(out)
+        try:
+            return eval(out)
+        except Exception as e:
+            return out
 
-        if category == "info":
-            prompt = self.prepare_prompt(prompt_template=info_prompt, message=message)
-            prompt = self.langchain_format(prompt, self.history[-2:])
-            response = self.light_llm_analyst.invoke(prompt).content
-            return response
+    def handle_info_message(self, message):
+        prompt = self.prepare_prompt(prompt_template=info_prompt, message=message)
+        prompt = self.langchain_format(prompt, self.history[-2:])
+        response = self.light_llm_analyst.invoke(prompt).content
+        return response
 
-        # if self.team_is_created is False:
-        #     prompt = self.prepare_prompt(
-        #         message_is_listing_players_prompt, chat_history=message
-        #     )
-        #     prompt = self.langchain_format(prompt)
-        #     user_players = self.light_llm_analyst.invoke(prompt).content
+    def handle_research_category(self, eng_message, original_message, source_language):
+        # Logic for handling 'research' category, including invoking LLMs,
+        # mapping entities, generating and executing queries
+        prompt = self.prepare_prompt(list_players_and_teams, chat_history=eng_message)
+        prompt = self.langchain_format(prompt)
+        entities = self.light_llm_analyst.invoke(prompt).content
 
-        #     if eval(user_players) != []:
-        #         identified_players, non_identified_players = self.get_players(
-        #             potential_players=user_players
-        #         )
-        #         _ = self.add_players(identified_players)
-        #         self.team_is_created = True
+        # replace entities identified in the string with
+        # the named used in the database.
+        mappings, non_identified_entities = self.map_entities(
+            potential_entities=entities
+        )
 
-        elif category == "research":
-            # QUERY
+        query_results = []
+        query = None
+        # if the query contains some mappings to players / teams present in the db
+        # we the methods generates a query whose results are appended to
+        # query_results.
+        if mappings != {}:
+            # substitue the entities in the user message with the ones present in
+            # the database. Otherwise queries could not be executed correctly.
+            for old, new in mappings.items():
+                eng_message = eng_message.replace(old, new)
+
+            # Retrieving the queries closest to the ones of the user.
+            # Retrieval Augmented Generation
             closest_queries = self.data_manager.qdant_retrieve(
                 eng_message, self.retrieve_n_queries
             )
@@ -123,8 +177,11 @@ class LLMInterface:
                 history=prompt_history,
             )
             prompt = self.langchain_format(prompt, [])
+            # generate the mongodb query.
             query = self.heavy_llm_analyst.invoke(prompt).content
-            results = []
+            # The following block is used to handle post-processing
+            # to make sure that the query can be executed by pymongo.
+
             try:
                 try:
                     query = self.multiline_eval(query)
@@ -146,25 +203,25 @@ class LLMInterface:
 
                 outputs = self.data_manager.players_collection.aggregate(query)
                 for out in outputs:
-                    results.append(out)
+                    query_results.append(out)
 
             except Exception as e:
-                results = "query failed"
-            # EXPLANATION
-            prompt = self.prepare_prompt(
-                prompt_template=result_explanation_prompt,
-                question=message,
-                answer=results,
-                history=self.history[-1:],
-            )
-            prompt = self.langchain_format(prompt, [])
-            out = self.heavy_llm_chat.invoke(prompt).content
-            gpt_response = {"query": query, "response": out}
-            self.history.append([message, str(gpt_response)])
-            return out
-
-        else:
-            pass
+                query_results = "query failed"
+        # The following block is responsible to translate the mongodb query into
+        # human language and to provide the response to the user.
+        prompt = self.prepare_prompt(
+            prompt_template=result_explanation_prompt,
+            question=original_message,
+            non_identified_entities=non_identified_entities,
+            query_results=query_results,
+            history=self.history[-1:],
+            language=source_language,
+        )
+        prompt = self.langchain_format(prompt, [])
+        out = self.heavy_llm_chat.invoke(prompt).content
+        gpt_response = {"query": query, "response": out}
+        self.history.append([original_message, str(gpt_response)])
+        return out
 
     def multiline_eval(self, expr):
         "Evaluate several lines of input, returning the result of the last line"
@@ -211,30 +268,30 @@ class LLMInterface:
         history_langchain_format.append(HumanMessage(content=message))
         return history_langchain_format
 
-    def get_players(self, potential_players: List) -> Tuple[List, List]:
+    def map_entities(self, potential_entities: List) -> Tuple[Dict, List]:
 
-        all_players = self.data_manager.serie_a_players["serie_a_players"]
-        ground_truth_names = [g["name"] for g in all_players]
+        all_players = self.data_manager.serie_a_players
+        player_names = [g["name"] for g in all_players]
+        team_names = self.data_manager.serie_a_teams
+        all_entities = player_names + team_names
 
-        identified_players = []
-        non_identified_players = []
+        identified_entities = {}
+        non_identified_entities = []
 
-        for user_written_name in eval(potential_players):
+        for user_written_name in eval(potential_entities):
             user_written_name = unidecode(user_written_name)
             # Extract the best match above the threshold
             identified = False
-            best_match, score = process.extractOne(
-                user_written_name, ground_truth_names
-            )
+            best_match, score = process.extractOne(user_written_name, all_entities)
             if score >= self.fuzzy_threshold:
                 # identified_players.append((user_written_name, best_match, score))
-                identified_players.append(best_match)
+                identified_entities[user_written_name] = best_match
                 identified = True
 
             if identified is False:
-                non_identified_players.append(user_written_name)
+                non_identified_entities.append(user_written_name)
 
-        return identified_players, non_identified_players
+        return identified_entities, non_identified_entities
 
     def double_braces(self, input_str):
         """
@@ -273,7 +330,11 @@ if __name__ == "__main__":
         bonus_malus_table = yaml.safe_load(file)["bonus_malus_table"]
     scraper = SerieA_Scraper(bonus_malus_table=bonus_malus_table)
     data_manager = SerieA_DatabaseManager(scraper=scraper)
-    smart_llm = LLMInterface(data_manager=data_manager)
+    smart_llm = LLMInterface(data_manager=data_manager, retrieve_n_queries=5)
+
+    # gr.ChatInterface(
+    #     fn=smart_llm.chat_debug,
+    # ).launch()
     print("Welcome to the LLM Chat Interface. Type 'quit' to exit.")
 
     while True:

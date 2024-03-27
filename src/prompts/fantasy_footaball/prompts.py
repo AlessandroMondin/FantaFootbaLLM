@@ -3,9 +3,11 @@ from langchain.prompts import PromptTemplate
 style_concise = "informal and concise. Do not be verbose."
 style_very_concise = "informal and very concise. Do not be verbose."
 
-message_is_listing_players_prompt = """
-If the input massage contains names of players return them in a list.
-Otherwise return an empty list.
+list_players_and_teams = """
+If the input message contains names that could be referring to players, teams, or any
+mentioned entities, return them in a list. This includes names that may not be
+immediately recognizable as associated with football but are presented as potential
+entities in the context of the message. Otherwise, return an empty list.
 
 EXAMPLES:
 ///
@@ -22,6 +24,20 @@ I miei giocatori sono Mike mAIGNAN, El sharawi, Baschirotto.
 
 <<OUTPUT>>
 ["Mike mAIGNAN", "El sharawi", "Baschirotto"]
+
+example 3:
+<<INPUT>>
+Oltre a immobile, chi sono gli altri attaccanti della Lazio?.
+
+<<OUTPUT>>
+["immobile", "Lazio"]
+
+example 3:
+<<INPUT>>
+Immobile gioca nella lazio, istambul o nel nizza?.
+
+<<OUTPUT>>
+["immobile", "Lazio", "istambul", "nizza"]
 ///
 
 << INPUT >>
@@ -69,23 +85,65 @@ Finally tell the user that he can ask you these questions:
 - Does this player scores when the other team plays with this modulo?
 """
 
-label_user_message = """
-If there is any text prior to this prompt, consider it as <<HISTORY>>
-Based on the <<MESSAGE>> and <<HISTORY>> that we refer as CONTENT:
-- "research": if the CONTENT asks a question like: What is the average score of this player in the last 3 matches he played?
- How many goals has this player scoared? How many yellow card has this player taken? How many goals has this team scored in the last 5 matches?
-How many goals has this goalkeeper received in the last 5 matches? Does this player score more when the other team uses which module? Give me the 5 players of atalanta with best average grade.
-- "team_management": if the CONTENT asks a question like: I have traded "player 1" and "player 2" for "player 3" and "player 4". Can you show me
-    my players? Can you delete "player a" from my team?
-- "info": if CONTENT refards information on how to use the chatbot, which questions to ask etc.
-- "unknown": if the CONTENT does not concern none of the categories listed above.
-This prompt must return a category between "suggestion", "research", "team_management", "info", "unknown" AND the english translation of <<MESSAGE>>
-EXAMPLE:
+translate_user_message = """
+Please provide a literal translation where every word from the original message is
+translated into English. If there are specific words that do not have a direct
+translation or are names that should not be translated, include them in their original
+form within the translated text. The translation should reflect the complete content and
+structure of the original message, ensuring no word is omitted.
+
 <<MESSAGE>>
-"Quanti goal ha segnato leao quest'anno?"
+{message}
 
 <<OUTPUT>>
-["research", "How many goals has scored leao this year?"]
+The translated message and the language used in <<MESSAGE>>, in a Python list format.
+[translation, language]
+"""
+
+
+label_user_message = """
+
+Incorporating your feedback, the prompt will now emphasize the importance of recognizing
+entities related to players and teams, as well as include a broader perspective on what
+constitutes a "research" inquiry through keywords and the understanding of
+football-related entities. Let's refine the prompt to cover these aspects:
+
+If there is any text prior to this prompt, consider it as <<HISTORY>>.
+
+Based on the <<MESSAGE>> and <<HISTORY>> referred to as CONTENT, classify the inquiry
+according to the following categories:
+"info": This category is for CONTENT that seeks guidance on how to interact with the
+chatbot. It covers questions like 'how can I use this chatbot' and 'what kind of
+questions can I ask?'. These inquiries aim to understand the chatbot's functionalities
+and are not related to football or fantasy football.
+"research": This category includes CONTENT involving football and fantasy football,
+particularly focusing on entities such as players and teams. It encompasses a wide range
+of inquiries that might not explicitly use football terminology but are inherently about
+football. For instance, questions comparing players ("who is better: Leao, Lautaro, or
+Vlahovic?"), discussing player performances, strategies, and aspects of the game are
+considered "research". Keywords that further identify a message as "research" include
+assist, goal, midfielder, play, game, score, defense, attack, tactic, formation, league,
+penalty, red card, etc.. Any message that discusses or mentions entities
+related to football, whether it's about player comparisons, team performances, match
+outcomes should be classified under this category.
+
+"non_pertinent": This category is for CONTENT that does not fall into the 'info' or
+'research' categories. It should be used for messages that are off-topic, unrelated to
+the operational use of the chatbot, or to football and fantasy football inquiries.
+This includes personal conversations or any questions outside the chatbot's designed
+knowledge scope on football and user interaction guidance.
+
+Content classification should focus on identifying the main intent and context of the
+inquiry. If a message involves football entities or pertains to the football domain, even
+abstractly or implicitly, it should be categorized as "research".
+
+
+EXAMPLE:
+<<MESSAGE>>
+"How many goals has scored leao this year?"
+
+<<OUTPUT>>
+"research"
 
 <<OUTPUT>>
 
@@ -93,6 +151,7 @@ EXAMPLE:
 {message}
 
 <<OUTPUT>>
+Bear in mind, the output should contain only a single quotation mark.
 """
 
 info_prompt = """
@@ -248,24 +307,30 @@ to allow the user to make the best possible decision.
 
 result_explanation_prompt = """
 POV: You are an expert of fantasy-footaball analysis.
-The user asked a <<QUESTION>>, and the <<ANSWER>> is in MongoDB format.
-You need to translate <<ANSWER>> into human language.
-If <<ANSWER>> is [] or "query failed", tell the user that he must specify the whole
+The user asked a <<QUESTION>>, and the <<QUERY_RESULTS>> is in MongoDB format.
+You need to translate <<QUERY_RESULTS>> into human language.
+If <<QUERY_RESULTS>> is [] or "query failed", tell the user that he must specify the whole
 statistic within the message since this system strugges to memorize the subject of the
 discussion. Also tell him that is the instruction was clear, the statistics couldn't be
 retrieved.
+If <<NON_IDENTIFIED_ENTITIES>> is not [], explain <<OUTPUT>> in that those entities within
+the user message could not be matched with read data and therefore the answer does not
+include them. Again, use the same the user used in <<QUESTION>> and <<HISTORY>>.
 
 <<QUESTION>>
 {question}
 
 <<HISTORY>>
-{answer}
+{history}
 
-<<ANSWER>>
-{answer}
+<<NON_IDENTIFIED_ENTITIES>>
+{non_identified_entities}
+
+<<QUERY_RESULTS>>
+{query_results}
 
 <<OUTPUT>>
-You must reply in the same language the user used in <<QUESTION>> and <<HISTORY>>.
+Reply in {language}. Do not be verbose.
 """
 
 correct_json_prompt = """
