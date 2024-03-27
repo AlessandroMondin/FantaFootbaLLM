@@ -146,13 +146,18 @@ class SerieA_DatabaseManager:
             )
             self._serie_a_players = self.championship_collection.find_one(*query)
             if self._serie_a_players == {} or self._serie_a_players is None:
-                self._serie_a_players = self.scraper.get_player_names()
-                self._serie_a_players = self.championship_collection.insert_one(
+                self._serie_a_players = []
+                for team in self.serie_a_teams:
+                    team_players = self.scraper.get_player_names(team)
+                    self._serie_a_players += team_players
+                self.championship_collection.insert_one(
                     {
-                        "serie_a_teams": self._serie_a_teams,
+                        "serie_a_players": self._serie_a_players,
                         "season": self.current_season,
                     }
                 )
+            else:
+                self._serie_a_players = self._serie_a_players["serie_a_players"]
         return self._serie_a_players
 
     @property
