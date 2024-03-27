@@ -57,6 +57,8 @@ class SerieA_DatabaseManager:
 
             self.setup_qdrant()
 
+        self.qdrant_update()
+
         # for properties
         self._current_match_day = None
         self._last_analysed_match = None
@@ -336,7 +338,7 @@ class SerieA_DatabaseManager:
         )
 
         documents = []
-        for document in glob.glob(self.RAG_QUERIES):
+        for document in sorted(glob.glob(self.RAG_QUERIES)):
             with open(document, "r") as f:
                 document = json.load(f)
                 documents.append(document)
@@ -362,6 +364,39 @@ class SerieA_DatabaseManager:
         )
         hits = [hit.payload for hit in hits]
         return hits
+
+    def qdrant_update(self):
+        num_queries_uploaded = self.qdrant.count(
+            collection_name=self.qdrant_collection
+        ).count
+
+        queries_located = sorted(glob.glob(self.RAG_QUERIES))
+        num_queries_located = len(queries_located)
+
+        if num_queries_located > num_queries_uploaded:
+            queries_located = queries_located[num_queries_uploaded:]
+            logger.info(
+                f"Identified {len(queries_located)} new queries: uploading them to QDRANT"
+            )
+            documents = []
+            for document in sorted(glob.glob(self.RAG_QUERIES)):
+                with open(document, "r") as f:
+                    document = json.load(f)
+                    documents.append(document)
+
+            ids = list(range(num_queries_uploaded, num_queries_located))
+
+            self.qdrant.upload_points(
+                collection_name=self.qdrant_collection,
+                points=[
+                    models.PointStruct(
+                        id=idx,
+                        vector=self.encoder.encode(doc["question"]).tolist(),
+                        payload=doc,
+                    )
+                    for idx, doc in zip(ids, documents)
+                ],
+            )
 
 
 if __name__ == "__main__":
