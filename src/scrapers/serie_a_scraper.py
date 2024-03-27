@@ -67,21 +67,6 @@ class SerieA_Scraper:
         self.current_user_agent_index = 0
         self.request_limit = None
 
-    @property
-    # Retrieves all the players of the championship. Either by retrieving them from
-    # the dataset or by downloading them from the web.
-    def serie_a_players(self):
-        if self._serie_a_players is None:
-            query = (
-                {"serie_a_players": {"$exists": True}},
-                {"serie_a_players": 1, "_id": 0},
-            )
-            self._serie_a_players = self.championship_collection.find_one(*query)
-            if self._serie_a_players == {} or self._serie_a_players is None:
-                self.retrieve_players()
-                self._serie_a_players = self.championship_collection.find_one(*query)
-        return self._serie_a_players
-
     def get_current_match_day(self):
         return self._scrape_current_match_day(self.url_serie_a_gen_info)
 
@@ -200,17 +185,13 @@ class SerieA_Scraper:
 
         return team_players
 
-    def get_player_names(self):
+    def get_player_names(self, team: str):
         """
         Downloads all the SerieA players from the WEB and stores them in MongoDB.
         """
-        players = []
-        for team in self.serie_a_teams:
-            url = f"{self.url_players}/{team}"
-            team_players = self._scrape_players_by_team(url=url)
-            players += team_players
-
-        self.championship_collection.insert_one({"serie_a_players": players})
+        url = f"{self.url_players}/{team}"
+        team_players = self._scrape_players_by_team(url=url)
+        return team_players
 
     @scrape_error_handler
     def _scrape_forecast_next_match(self, url) -> List:
