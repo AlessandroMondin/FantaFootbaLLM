@@ -338,7 +338,8 @@ class SerieA_DatabaseManager:
         )
 
         documents = []
-        for document in sorted(glob.glob(self.RAG_QUERIES)):
+        queries = self.sorted_queries()
+        for document in queries:
             with open(document, "r") as f:
                 document = json.load(f)
                 documents.append(document)
@@ -374,12 +375,14 @@ class SerieA_DatabaseManager:
         num_queries_located = len(queries_located)
 
         if num_queries_located > num_queries_uploaded:
-            queries_located = queries_located[num_queries_uploaded:]
+            queries = self.sorted_queries()
+            queries = queries[num_queries_uploaded:]
             logger.info(
-                f"Identified {len(queries_located)} new queries: uploading them to QDRANT"
+                f"Identified {len(queries)} new queries: uploading them to QDRANT"
             )
             documents = []
-            for document in sorted(glob.glob(self.RAG_QUERIES)):
+
+            for document in queries:
                 with open(document, "r") as f:
                     document = json.load(f)
                     documents.append(document)
@@ -397,6 +400,15 @@ class SerieA_DatabaseManager:
                     for idx, doc in zip(ids, documents)
                 ],
             )
+
+    def sorted_queries(self):
+        # assumes queries are stored with the following naming:
+        # src/prompts/fantasy_footaball/rag_queries/q1.json
+        sorted_queries = sorted(
+            glob.glob(self.RAG_QUERIES),
+            key=lambda x: int(x.split("/")[-1].split(".")[0][1:]),
+        )
+        return sorted_queries
 
 
 if __name__ == "__main__":
